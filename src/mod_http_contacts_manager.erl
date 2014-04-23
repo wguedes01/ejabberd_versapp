@@ -11,6 +11,8 @@
 -vsn('').
 -define(ejabberd_debug, true).
 
+-define(DB_IP, <<"gcloudsql.dev.versapp.co">>).
+
 -behaviour(gen_mod).
 
 -export([
@@ -33,8 +35,24 @@ process([<<"store">>], Request) ->
 	%%Extract parameters we want from Request:
 	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , _I} = Request,
 
-	"Hey Steve",
-	?INFO_MSG("Request: ~p", [Data]);
+	ContactList = string:tokens(binary_to_list(Data), ","),
+	
+	RegisteredList = lists:any(fun(ContactId)-> 
+
+		?INFO_MSG("Contact Id: ~p", [ContactId]),
+
+		{_,_, Reg} = ejabberd_odbc:sql_query(<<"ce.dev.versapp.co">>,
+                                [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"'">>]),	
+
+		?INFO_MSG("Done w query", []),
+
+		length(Reg) > 0
+
+		end, ContactList),	
+		
+
+
+	?INFO_MSG("Request: ~p", [RegisteredList]);
 process(["produce_error"], _Request) ->
     {400, [], {xmlelement, "h1", [],
                [{xmlcdata, "400 Bad Request"}]}};
