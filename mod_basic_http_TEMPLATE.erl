@@ -22,19 +22,13 @@
 -include("ejabberd.hrl").
 -include("jlib.hrl").
 -include("ejabberd_http.hrl").
--include("logger.hrl").
 
 %%%----------------------------------------------------------------------
 %%% REQUEST HANDLERS
 %%%----------------------------------------------------------------------
 
-process([<<"store">>], Request) ->
-
-	%%Extract parameters we want from Request:
-	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , _I} = Request,
-
-	"Hey Steve",
-	?INFO_MSG("Request: ~p", [Data]);
+process([<<"store">>], _Request) ->
+	"Hey Steve";
 process(["produce_error"], _Request) ->
     {400, [], {xmlelement, "h1", [],
                [{xmlcdata, "400 Bad Request"}]}};
