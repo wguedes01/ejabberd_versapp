@@ -11,7 +11,7 @@
 -vsn('').
 -define(ejabberd_debug, true).
 
--define(DB_IP, <<"gcloudsql.dev.versapp.co">>).
+-define(SERVER_IP, <<"ce.dev.versapp.co">>).
 
 -behaviour(gen_mod).
 
@@ -20,6 +20,8 @@
     stop/1,
     process/2
     ]).
+
+-export([contact_exists/3]).
 
 -include("ejabberd.hrl").
 -include("jlib.hrl").
@@ -33,17 +35,34 @@
 process([<<"store">>], Request) ->
 
 	%%Extract parameters we want from Request:
-	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , _I} = Request,
+	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , Header} = Request,
 
+	?INFO_MSG("Req: ~p", [Request]),
+
+	[{Key, Username}] = lists:filter(fun({Key, Val})-> Key==<<"Username">> end, Header),
+
+	?INFO_MSG("Username: ~p", [Username]),
+	
 	ContactList = string:tokens(binary_to_list(Data), ","),
 	
 	RegisteredList = lists:any(fun(ContactId)-> 
 
-		?INFO_MSG("Contact Id: ~p", [ContactId]),
+			
+		%%If this user's contact is not on DB. Add it.
+		case contact_exists(?SERVER_IP, Username, ContactId) of
+			false ->
+				%% Inserts contact into DB. I should do some checking here so it does not add duplicates.
+                		ejabberd_odbc:sql_query(?SERVER_IP,
+                                	[<<"INSERT INTO contacts (username, identifier) VALUES ('">>,Username,<<"','">>,ContactId,<<"')">>]);
+			_ ->
+			[]	
+		end,	
 
-		{_,_, Reg} = ejabberd_odbc:sql_query(<<"ce.dev.versapp.co">>,
+
+		%%See if contact is registered.
+		{_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
                                 [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"'">>]),	
-
+		
 		?INFO_MSG("Done w query", []),
 
 		length(Reg) > 0
@@ -73,3 +92,17 @@ start(_Host, _Opts) ->
 
 stop(_Host) ->
     ok. 
+
+%%%----------------------------------------------------------------------
+%%% SUPOPRT METHODS
+%%%----------------------------------------------------------------------
+
+contact_exists(Server, Username, ContactId) ->
+
+	%%See if contact is registered.
+                {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
+                                [<<"SELECT username FROM contacts WHERE username='">>,Username,<<"' AND identifier='">>,ContactId,<<"'">>]),
+
+                ?INFO_MSG("Done w query", []),
+
+                length(Reg) > 0.
