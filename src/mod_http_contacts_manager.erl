@@ -21,7 +21,9 @@
     process/2
     ]).
 
--export([contact_exists/3]).
+-export([send_packet_all_resources/3, build_packet/2]).
+
+-export([contact_exists/3, is_valid_http_request/1]).
 
 -include("ejabberd.hrl").
 -include("jlib.hrl").
@@ -39,9 +41,11 @@ process([<<"store">>], Request) ->
 
 	?INFO_MSG("Req: ~p", [Request]),
 
-	[{Key, Username}] = lists:filter(fun({Key, Val})-> Key==<<"Username">> end, Header),
+	%%[{Key, Username}] = lists:filter(fun({Key, Val})-> Key==<<"Username">> end, Header),
 
-	?INFO_MSG("Username: ~p", [Username]),
+	Username = is_valid_http_request(Request),
+
+	?INFO_MSG("\n\nUsername: ~p", [Username]),
 	
 	ContactList = string:tokens(binary_to_list(Data), ","),
 	
@@ -64,6 +68,17 @@ process([<<"store">>], Request) ->
                                 [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"'">>]),	
 		
 		?INFO_MSG("Done w query", []),
+
+		case length(Reg) > 0 of
+			true ->
+
+			send_packet_all_resources(<<"w@ce.dev.versapp.co/who">>, <<"will@ce.dev.versapp.co/who">>, build_packet(message_chat, [<<"Helooo">>]));
+
+
+			false->
+			[]
+		end,
+
 
 		length(Reg) > 0
 
@@ -106,3 +121,74 @@ contact_exists(Server, Username, ContactId) ->
                 ?INFO_MSG("Done w query", []),
 
                 length(Reg) > 0.
+
+
+
+send_packet_all_resources(FromJIDString, ToJIDString, Packet) ->
+    FromJID = jlib:string_to_jid(FromJIDString),
+    ToJID = jlib:string_to_jid(ToJIDString),
+    ToUser = ToJID#jid.user,
+    ToServer = ToJID#jid.server,
+    case ToJID#jid.resource of
+	<<>> ->
+	    send_packet_all_resources(FromJID, ToUser, ToServer, Packet);
+	Res ->
+	    send_packet_all_resources(FromJID, ToUser, ToServer, Res, Packet)
+    end.
+
+send_packet_all_resources(FromJID, ToUser, ToServer, Packet) ->
+    case ejabberd_sm:get_user_resources(ToUser, ToServer) of
+	[] ->
+	    send_packet_all_resources(FromJID, ToUser, ToServer, <<>>, Packet);
+	ToResources ->
+	    lists:foreach(
+	      fun(ToResource) ->
+		      send_packet_all_resources(FromJID, ToUser, ToServer,
+						ToResource, Packet)
+	      end,
+	      ToResources)
+    end.
+
+send_packet_all_resources(FromJID, ToU, ToS, ToR, Packet) ->
+    ToJID = jlib:make_jid(ToU, ToS, ToR),
+    ejabberd_router:route(FromJID, ToJID, Packet).
+
+
+build_packet(message_chat, [Body]) ->
+    {xmlel, <<"message">>,
+     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [{xmlel, <<"body">>, [], [{xmlcdata, Body}]},
+
+		#xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"new_user">>}]}, #xmlel{ name = <<"username">>, attrs = [], children = [{xmlcdata, <<"username_goes_here">>}]},  #xmlel{ name = <<"full_name">>, attrs = [], children = [{xmlcdata, <<"Name goes here">>}]}   ]}
+
+	%%	#xmlel{name = <<"property">>, attrs = [], children = [#xmlel{ name = <<"name">>, attrs = [], children = [{xmlcdata, <<"time">>}]},  #xmlel{ name = <<"value">>, attrs = [{<<"type">>, <<"string">>}], children = [{xmlcdata, <<"hi">>}]}]}
+	
+		]};
+build_packet(message_headline, [Subject, Body]) ->
+    {xmlel, <<"message">>,
+     [{<<"type">>, <<"headline">>}, {<<"id">>, randoms:get_string()}],
+     [{xmlel, <<"subject">>, [], [{xmlcdata, Subject}]},
+      {xmlel, <<"body">>, [], [{xmlcdata, Body}]}
+     ]
+    }.
+
+
+is_valid_http_request({request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , Header} = Request)->
+
+	[{Key, UserAndKey}] = lists:filter(fun({Key, Val})-> Key=='Authorization' end,Header),
+
+        [_, Auth] = string:tokens(binary_to_list(UserAndKey), " "),
+
+        [Username, AccessKey] = string:tokens(binary_to_list(base64:decode(Auth)), ":"),
+
+	{_,_, Result} = ejabberd_odbc:sql_query(?SERVER_IP,
+                                [<<"SELECT * FROM session WHERE username='">>,Username,<<"' AND session_key='">>,AccessKey,<<"'">>]),
+
+	case length(Result) > 0 of
+		true->
+			Username;
+		_->
+			false
+	end.
+
+

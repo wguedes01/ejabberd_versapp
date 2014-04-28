@@ -50,6 +50,7 @@ add_time_property({From, To, #xmlel{name = Name, attrs = Attrs, children = SubEl
 			NewProp = #xmlel{name = PName, attrs = PAttrs, children = lists:append(PList, [#xmlel{name = <<"property">>, attrs = [], children = [#xmlel{ name = <<"name">>, attrs = [], children = [{xmlcdata, <<"time">>}]},  #xmlel{ name = <<"value">>, attrs = [{<<"type">>, <<"string">>}], children = [{xmlcdata, TSTerm}]}]}])},
 			
 
+
 			NewXml = #xmlel{name = Name, attrs = Attrs, children = [BodyEl, ThreadEl, NewProp]},	
 
 			NewXml;			
