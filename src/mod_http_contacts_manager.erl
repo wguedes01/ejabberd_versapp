@@ -12,6 +12,7 @@
 -define(ejabberd_debug, true).
 
 -define(SERVER_IP, <<"ce.dev.versapp.co">>).
+-define(JID_EXT, <<"@ce.dev.versapp.co/who">>).
 
 -behaviour(gen_mod).
 
@@ -48,7 +49,10 @@ process([<<"store">>], Request) ->
 	?INFO_MSG("\n\nUsername: ~p", [Username]),
 	
 	ContactList = string:tokens(binary_to_list(Data), ","),
-	
+
+
+	?INFO_MSG("\n\nContact List: ~p", [ContactList]),
+
 	RegisteredList = lists:any(fun(ContactId)-> 
 
 			
@@ -71,9 +75,17 @@ process([<<"store">>], Request) ->
 
 		case length(Reg) > 0 of
 			true ->
+			
+			?INFO_MSG("SENDING PACKET: Reg: ~p", [[Reg]]),			
 
-			send_packet_all_resources(<<"w@ce.dev.versapp.co/who">>, <<"will@ce.dev.versapp.co/who">>, build_packet(message_chat, [<<"Helooo">>]));
+			%% send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
 
+			?INFO_MSG("\nFrom: ~p", [list_to_binary(string:concat(Username, binary_to_list(?JID_EXT)))]),
+			?INFO_MSG("\nTo: ~p", [list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT)))]),
+
+			%%send_packet_all_resources(<<"w@ce.dev.versapp.co/who">>, <<"will@ce.dev.versapp.co/who">>, build_packet(message_chat, [<<"Helooo">>]));
+
+			 send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
 
 			false->
 			[]
@@ -85,8 +97,7 @@ process([<<"store">>], Request) ->
 		end, ContactList),	
 		
 
-
-	?INFO_MSG("Request: ~p", [RegisteredList]);
+		".";
 process(["produce_error"], _Request) ->
     {400, [], {xmlelement, "h1", [],
                [{xmlcdata, "400 Bad Request"}]}};
