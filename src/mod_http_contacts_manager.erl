@@ -53,58 +53,62 @@ process([<<"store">>], Request) ->
 
 	?INFO_MSG("\n\nContact List: ~p", [ContactList]),
 
-	RegisteredList = lists:any(fun(ContactId)-> 
 
-			
+	RegisteredList = lists:map(fun(ContactId)-> 
+
+		
+		?INFO_MSG("\n\nID: ~p", [ContactId]),
+				
 		%%If this user's contact is not on DB. Add it.
 		case contact_exists(?SERVER_IP, Username, ContactId) of
 			false ->
+				?INFO_MSG("\nINSERTING ~p", [ContactId]),
 				%% Inserts contact into DB. I should do some checking here so it does not add duplicates.
-                		ejabberd_odbc:sql_query(?SERVER_IP,
-                                	[<<"INSERT INTO contacts (username, identifier) VALUES ('">>,Username,<<"','">>,ContactId,<<"')">>]);
+                		?INFO_MSG("\nQUERY INSERT: ~p", [ejabberd_odbc:sql_query(?SERVER_IP,
+                                	[<<"INSERT INTO contacts (username, identifier) VALUES ('">>,Username,<<"','">>,ContactId,<<"')">>])]);
 			_ ->
 			[]	
 		end,	
-
+	
 
 		%%See if contact is registered.
-		{_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
-                                [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"'">>]),	
-		
-		?INFO_MSG("Done w query", []),
+                {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
+                                [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"'">>]),
 
-		case length(Reg) > 0 of
-			true ->
+                ?INFO_MSG("Done w query", []),
 
-			%%ADD FRIENDS TO ROSTER		
+                case length(Reg) > 0 of
+                        true ->
 
-			ejabberd_odbc:sql_query(?SERVER_IP,
+                        %%ADD FRIENDS TO ROSTER
+
+                        ejabberd_odbc:sql_query(?SERVER_IP,
                                         [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ('">>,[[Reg]],<<"', '">>,string:concat(Username, binary_to_list(?JID_EXT)),<<"', 'temp_name', 'B', 'N', 'N', 'item')">>]),
-			
-			ejabberd_odbc:sql_query(?SERVER_IP,
-                                        [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ('">>,Username,<<"', '">>,string:concat([[Reg]], binary_to_list(?JID_EXT)),<<"', 'temp_name', 'B', 'N', 'N', 'item')">>]),			
 
-			?INFO_MSG("ADDED TO DB", []),
+                        ejabberd_odbc:sql_query(?SERVER_IP,
+                                        [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ('">>,Username,<<"', '">>,string:concat([[Reg]], binary_to_list(?JID_EXT)),<<"', 'temp_name', 'B', 'N', 'N', 'item')">>]),
+
+                        ?INFO_MSG("ADDED TO DB", []),
+
+
+                        ?INFO_MSG("SENDING PACKET: Reg: ~p", [[Reg]]),
+
+                        %% send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
+
+                        ?INFO_MSG("\nFrom: ~p", [list_to_binary(string:concat(Username, binary_to_list(?JID_EXT)))]),
+                        ?INFO_MSG("\nTo: ~p", [list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT)))]),
+
+                        %%send_packet_all_resources(<<"w@ce.dev.versapp.co/who">>, <<"will@ce.dev.versapp.co/who">>, build_packet(message_chat, [<<"Helooo">>]));
+
+%%                       send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
+                        [];
+                        false->
+                        []
+                end,
+
 		
-
-			?INFO_MSG("SENDING PACKET: Reg: ~p", [[Reg]]),			
-
-			%% send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
-
-			?INFO_MSG("\nFrom: ~p", [list_to_binary(string:concat(Username, binary_to_list(?JID_EXT)))]),
-			?INFO_MSG("\nTo: ~p", [list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT)))]),
-
-			%%send_packet_all_resources(<<"w@ce.dev.versapp.co/who">>, <<"will@ce.dev.versapp.co/who">>, build_packet(message_chat, [<<"Helooo">>]));
-
-			 send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
-
-			false->
-			[]
-		end,
-
-
 		length(Reg) > 0
-
+	
 		end, ContactList),	
 		
 
