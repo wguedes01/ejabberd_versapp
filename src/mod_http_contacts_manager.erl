@@ -75,7 +75,18 @@ process([<<"store">>], Request) ->
 
 		case length(Reg) > 0 of
 			true ->
+
+			%%ADD FRIENDS TO ROSTER		
+
+			ejabberd_odbc:sql_query(?SERVER_IP,
+                                        [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ('">>,[[Reg]],<<"', '">>,string:concat(Username, binary_to_list(?JID_EXT)),<<"', 'temp_name', 'B', 'N', 'N', 'item')">>]),
 			
+			ejabberd_odbc:sql_query(?SERVER_IP,
+                                        [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ('">>,Username,<<"', '">>,string:concat([[Reg]], binary_to_list(?JID_EXT)),<<"', 'temp_name', 'B', 'N', 'N', 'item')">>]),			
+
+			?INFO_MSG("ADDED TO DB", []),
+		
+
 			?INFO_MSG("SENDING PACKET: Reg: ~p", [[Reg]]),			
 
 			%% send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat([[Reg]],binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]));
@@ -170,9 +181,10 @@ build_packet(message_chat, [Body]) ->
      [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
      [{xmlel, <<"body">>, [], [{xmlcdata, Body}]},
 
-		#xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"new_user">>}]}, #xmlel{ name = <<"username">>, attrs = [], children = [{xmlcdata, <<"username_goes_here">>}]},  #xmlel{ name = <<"full_name">>, attrs = [], children = [{xmlcdata, <<"Name goes here">>}]}   ]}
+%%		#xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"new_user">>}]}, #xmlel{ name = <<"username">>, attrs = [], children = [{xmlcdata, <<"username_goes_here">>}]},  #xmlel{ name = <<"full_name">>, attrs = [], children = [{xmlcdata, <<"Name goes here">>}]}   ]}
+	
+		#xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"new_user">>}]}   ]}
 
-	%%	#xmlel{name = <<"property">>, attrs = [], children = [#xmlel{ name = <<"name">>, attrs = [], children = [{xmlcdata, <<"time">>}]},  #xmlel{ name = <<"value">>, attrs = [{<<"type">>, <<"string">>}], children = [{xmlcdata, <<"hi">>}]}]}
 	
 		]};
 build_packet(message_headline, [Subject, Body]) ->
