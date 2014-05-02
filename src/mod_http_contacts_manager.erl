@@ -12,7 +12,7 @@
 -define(ejabberd_debug, true).
 
 -define(SERVER_IP, <<"ce.dev.versapp.co">>).
--define(JID_EXT, <<"@ce.dev.versapp.co/who">>).
+-define(JID_EXT, <<"@ce.dev.versapp.co">>).
 
 -behaviour(gen_mod).
 
@@ -40,35 +40,35 @@ process([<<"store">>], Request) ->
 	%%Extract parameters we want from Request:
 	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , Header} = Request,
 
-	?INFO_MSG("Req: ~p", [Request]),
-
-	%%[{Key, Username}] = lists:filter(fun({Key, Val})-> Key==<<"Username">> end, Header),
-
 	Username = is_valid_http_request(Request),
 
 	?INFO_MSG("\n\nUsername: ~p", [Username]),
 	
 	ContactList = string:tokens(binary_to_list(Data), ","),
 
-	%% Create a
+	%% Formats user information in this format: ('current_username','contact_identifier'). Eg: ('w','34938439849385')
 	FormattedList = lists:map(fun(El)-> lists:concat(["('",Username,"','",El,"')"]) end, ContactList),
 
-	?INFO_MSG("INSERT INTO table (username, identifier) VALUES ~p", [string:join(FormattedList, ", ")]),
-
+	%% Add all contacts to database.
 	ejabberd_odbc:sql_query(?SERVER_IP,
                                         [<<"INSERT IGNORE INTO contacts (username, identifier) VALUES ">>,string:join(FormattedList, ", ")]),
-
-	?INFO_MSG("CONTACT LSIT: ~p", [ContactList]),
-
-	SQLFormattedContactList = lists:map(fun(El)-> string:join(["'",El,"'"], "") end, ContactList),
 	
-	?INFO_MSG("CONTACT LSIT: ~p", [SQLFormattedContactList]),
+	%% Formats SQL query inputs the way it will be used in the SELECT statement below.
+	SQLFormattedContactList = lists:map(fun(El)-> string:join(["'",El,"'"], "") end, ContactList),
+
+	%% TODO: Select only contacts that have the app AND are not already friends with user.
 
 	%%See if contact is registered.
-        {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
-                                [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") OR email IN (">>,string:join(SQLFormattedContactList, ","),<<")">>]),	
+%%        {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
+  %%                              [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") OR email IN (">>,string:join(SQLFormattedContactList, ","),<<")">>]),	
 
-	
+
+	{_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
+                              [<<"SELECT upe.username FROM username_phone_email upe WHERE (CONCAT(upe.ccode, upe.phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") AND upe.username NOT IN (SELECT ru.username FROM rosterusers ru WHERE ru.username=upe.username AND ru.jid=CONCAT('">>,Username,<<"', '">>,binary_to_list(?JID_EXT),<<"')))">>]),
+
+
+	?INFO_MSG("\n\n\n\n\nREG: ~p", [Reg]),
+
 	%%List containing information to add friends to user roster
 	FriendList1 = lists:map(fun([El])-> string:join(["('",Username,"', '",string:concat(binary_to_list(El), binary_to_list(?JID_EXT)),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
 
@@ -82,23 +82,30 @@ process([<<"store">>], Request) ->
 	Set = sets:from_list(TempFriendsSQL),
         FriendsSQL = sets:to_list(Set),	
 
-%%	InsertString = string:join(lists:map(fun([El])-> string:join(["('",Username,"', '",string:concat(binary_to_list(El), binary_to_list(?JID_EXT)),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),","),
- %%       InsertString2 = string:join(lists:map(fun([El])-> string:join(["('",binary_to_list(El),"', '",Username, binary_to_list(?JID_EXT),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),","),
 
 
+	%%TODO: Check if that user is blocked by user he's trying to add. If so, don't add. Also, if user has already tried to be friends, don't add them to roster as a friend.
 
-	?INFO_MSG("\n\nSQL: ~p", [ejabberd_odbc:sql_query(?SERVER_IP,
-                                        [<<"INSERT INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ">>,string:join(FriendsSQL, ",") ])]),
+	?INFO_MSG("\n\nFriendsSQL: ~p", [FriendsSQL]),
+
+	case length(FriendsSQL) > 0 of
+		true ->
+	
+			?INFO_MSG("\n\nSQL: ~p", [ejabberd_odbc:sql_query(?SERVER_IP,
+                                        [<<"INSERT IGNORE INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ">>,string:join(FriendsSQL, ",") ])]);
+
+		false ->
+
+			[]
+	end,
 
 	lists:foreach(fun(El)-> 
-
+		
 		%% SENDS BROADCAST TO USERS NOTIFYING THEM SOMEONE ADDED THEM TO THEIR ROSTER
 		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(El,binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]))
 
 	end, Reg),
 
-
-	?INFO_MSG("SELECT: ~p", [Reg]),
 
 		".";
 process(["produce_error"], _Request) ->
