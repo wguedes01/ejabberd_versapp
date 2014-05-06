@@ -154,18 +154,29 @@ get_confessions(#jid{user = User, server = Server,
 	?INFO_MSG("\n\nSince String: ~p", [SinceString]),
 
 
-%%	{_, _, Result} = ejabberd_odbc:sql_query(Server,
-  %%                            [<<"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.jid = confessions.jid WHERE (confessions.created_timestamp > '">>,SinceString,<<"') AND (rosterusers.username = '">>,User,<<"' OR confessions.jid = '">>,MyJIDString,<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>]),
+	%% Get number of friends a user has.
+	{_,_,NumFriends} = ejabberd_odbc:sql_query(Server,
+                              [<<"SELECT username FROM rosterusers WHERE username='">>,User,<<"'">>]),
+
+	?INFO_MSG("\n\nCOUNT: ~p", [NumFriends]),
+	?INFO_MSG("\n\nCOUNT: ~p", [length(NumFriends)]),
+
+	?INFO_MSG("\n\nCOUNT: ~p", [length(NumFriends) > 3]),
+
+	Query = case length(NumFriends) > 3 of
+		true ->
+			?INFO_MSG("\n\nTRUEEEE", []),
+			<<"">>;
+		_ ->
+			?INFO_MSG("\n\nFALSEEEE", []),
+			string:join([binary_to_list(<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.jid = confessions.jid WHERE (confessions.created_timestamp > '">>),SinceString,binary_to_list(<<"') AND ((rosterusers.username = '">>),binary_to_list(User),binary_to_list(<<"' AND rosterusers.subscription = 'B') OR confessions.jid = '">>),binary_to_list(MyJIDString),binary_to_list(<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>)],"")
+	end,
 
 
-{_, _, Result} = ejabberd_odbc:sql_query(Server,
-                              [<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.jid = confessions.jid WHERE (confessions.created_timestamp > '">>,SinceString,<<"') AND ((rosterusers.username = '">>,User,<<"' AND rosterusers.subscription = 'B') OR confessions.jid = '">>,MyJIDString,<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100
-">>]),
+	?INFO_MSG("\n\nQuery: ~p", [Query]),
 
+	{_, _, Result} = ejabberd_odbc:sql_query(Server, [Query]),
 
-
-%%	{_, _, Result} = ejabberd_odbc:sql_query(Server,
-  %%                            [<<"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN rosterusers ON confessions.jid = rosterusers.jid AND rosterusers.username='">>,MyJIDString,<<"' AND confessions.jid = '">>,MyJIDString,<<"' LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100;">>]),
 
         ?INFO_MSG("Result query for confessions is: ~p", [Result]),
 

@@ -22,7 +22,7 @@
     process/2
     ]).
 
--export([send_packet_all_resources/3, build_packet/2]).
+-export([send_packet_all_resources/3, build_packet/2, build_completed_packet/2]).
 
 -export([contact_exists/3, is_valid_http_request/1]).
 
@@ -106,6 +106,8 @@ process([<<"store">>], Request) ->
 
 	end, Reg),
 
+
+		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(Username,binary_to_list(?JID_EXT))), build_completed_packet(message_chat, [<<"DONE">>])),
 
 		".";
 process(["produce_error"], _Request) ->
@@ -194,6 +196,17 @@ build_packet(message_headline, [Subject, Body]) ->
      ]
     }.
 
+
+build_completed_packet(message_chat, [Body]) ->
+    {xmlel, <<"message">>, 
+     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [{xmlel, <<"body">>, [], [{xmlcdata, Body}]},
+     
+        
+                #xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"new_user_request_completed">>}]}   ]}
+                
+                
+                ]}.
 
 is_valid_http_request({request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , Header} = Request)->
 
