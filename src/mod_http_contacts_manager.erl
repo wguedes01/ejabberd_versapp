@@ -37,6 +37,8 @@
 
 process([<<"store">>], Request) ->
 
+	?INFO_MSG("\n\n\nREQUEST ~p", [Request]),
+
 	%%Extract parameters we want from Request:
 	{request,'POST',_PATH,_Q , _Something, _Undef  , _Lang  , Data , _A, _Host, _P , _T , Header} = Request,
 
@@ -50,8 +52,8 @@ process([<<"store">>], Request) ->
 	FormattedList = lists:map(fun(El)-> lists:concat(["('",Username,"','",El,"')"]) end, ContactList),
 
 	%% Add all contacts to database.
-	ejabberd_odbc:sql_query(?SERVER_IP,
-                                        [<<"INSERT IGNORE INTO contacts (username, identifier) VALUES ">>,string:join(FormattedList, ", ")]),
+	%% ejabberd_odbc:sql_query(?SERVER_IP,
+                 %%                       [<<"INSERT IGNORE INTO contacts (username, identifier) VALUES ">>,string:join(FormattedList, ", ")]),
 	
 	%% Formats SQL query inputs the way it will be used in the SELECT statement below.
 	SQLFormattedContactList = lists:map(fun(El)-> string:join(["'",El,"'"], "") end, ContactList),
@@ -64,7 +66,7 @@ process([<<"store">>], Request) ->
 
 
 	{_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
-                              [<<"SELECT upe.username FROM username_phone_email upe WHERE (CONCAT(upe.ccode, upe.phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") AND upe.username NOT IN (SELECT ru.username FROM rosterusers ru WHERE ru.username=upe.username AND ru.jid=CONCAT('">>,Username,<<"', '">>,binary_to_list(?JID_EXT),<<"')))">>]),
+                              [<<"SELECT upe.username FROM username_phone_email upe WHERE (  (  CONCAT(upe.ccode, upe.phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") OR email IN (">>,string:join(SQLFormattedContactList, ","),<<") ) AND upe.username NOT IN (SELECT ru.username FROM rosterusers ru WHERE ru.username=upe.username AND ru.jid=CONCAT('">>,Username,<<"', '">>,binary_to_list(?JID_EXT),<<"')))">>]),
 
 
 	?INFO_MSG("\n\n\n\n\nREG: ~p", [Reg]),
@@ -109,17 +111,42 @@ process([<<"store">>], Request) ->
 
 		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(Username,binary_to_list(?JID_EXT))), build_completed_packet(message_chat, [<<"DONE">>])),
 
-		".";
-process(["produce_error"], _Request) ->
-    {400, [], {xmlelement, "h1", [],
-               [{xmlcdata, "400 Bad Request"}]}};
+%%		".";
+		
+		#xmlel{name = <<"html">>,
+           attrs =
+               [{<<"xmlns">>, <<"http://www.w3.org/1999/xhtml">>},
+                {<<"xml:lang">>, <<"en">>}, {<<"lang">>, <<"en">>}],
+           children =
+               [#xmlel{name = <<"head">>, attrs = [],
+                       children =
+                           [#xmlel{name = <<"meta">>,
+                                   attrs =
+                                       [{<<"http-equiv">>, <<"Content-Type">>},
+                                        {<<"content">>,
+                                         <<"application/xml">>}],
+                                   children = []}
+                            ]},
+                #xmlel{name = <<"body">>, attrs = [], children = []}]};
 
+process([<<"produce_error">>], Request) ->
+	"ERROR";
 process(LocalPath, _Request) ->
-    {xmlelement, "html", [{"xmlns", "http://www.w3.org/1999/xhtml"}],
-     [{xmlelement, "head", [],
-       [{xmlelement, "title", [], []}]},
-      {xmlelement, "body", [],
-       [{xmlelement, "p", [], [{xmlcdata, io_lib:format("Called with path: ~p", [LocalPath])}]}]}]}.
+	 #xmlel{name = <<"html">>,
+	   attrs =
+	       [{<<"xmlns">>, <<"http://www.w3.org/1999/xhtml">>},
+		{<<"xml:lang">>, <<"en">>}, {<<"lang">>, <<"en">>}],
+	   children =
+	       [#xmlel{name = <<"head">>, attrs = [],
+		       children =
+			   [#xmlel{name = <<"meta">>,
+				   attrs =
+				       [{<<"http-equiv">>, <<"Content-Type">>},
+					{<<"content">>,
+					 <<"application/xml">>}],
+				   children = []}
+			    ]},
+		#xmlel{name = <<"body">>, attrs = [], children = []}]}.
 
 %%%----------------------------------------------------------------------
 %%% BEHAVIOUR CALLBACKS
@@ -139,7 +166,7 @@ contact_exists(Server, Username, ContactId) ->
 
 	%%See if contact is registered.
                 {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
-                                [<<"SELECT username FROM contacts WHERE username='">>,Username,<<"' AND identifier='">>,ContactId,<<"'">>]),
+                                [<<"SELECT username FROM username_phone_email WHERE username='">>,Username,<<"' AND (CONCAT(ccode, phone)='">>,ContactId,<<"' OR email='">>,ContactId,<<"')">>]),
 
                 ?INFO_MSG("Done w query", []),
 

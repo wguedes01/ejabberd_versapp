@@ -113,11 +113,11 @@ insert_confession_into_db(#jid{user = User, server = Server,
 	[CreatedTimestamp] = get_timestamp(),
 
         ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confessions (jid, body, image_url, created_timestamp) VALUES ('">>,JIDString,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"', '">>,CreatedTimestamp,<<"')">>]),
+                                [<<"INSERT INTO confessions (jid, body, image_url, created_timestamp) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"', '">>,CreatedTimestamp,<<"')">>]),
 
        %% get id of confession just inserted.
         {_, _, [[ConfessionIdTerm]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confessions WHERE jid='">>,JIDString,<<"' AND created_timestamp='">>,CreatedTimestamp,<<"' ">>]),
+                                [<<"SELECT confession_id FROM confessions WHERE jid='">>,User,<<"' AND created_timestamp='">>,CreatedTimestamp,<<"' ">>]),
 
 	?INFO_MSG("ConfIdTerm, CreatedTimestamp: ~p, ~p", [ConfessionIdTerm, CreatedTimestamp]),
 	
@@ -165,10 +165,10 @@ get_confessions(#jid{user = User, server = Server,
 
 	Query = case length(NumFriends) > 3 of
 		false ->
-			string:join([binary_to_list(<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.jid = confessions.jid WHERE (confessions.created_timestamp > '">>),SinceString,binary_to_list(<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>)],"");
+			string:join([binary_to_list(<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.username = confessions.jid WHERE (confessions.created_timestamp > '">>),SinceString,binary_to_list(<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>)],"");
 		_ ->
 			?INFO_MSG("\n\nFALSEEEE", []),
-			string:join([binary_to_list(<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.jid = confessions.jid WHERE (confessions.created_timestamp > '">>),SinceString,binary_to_list(<<"') AND ((rosterusers.username = '">>),binary_to_list(User),binary_to_list(<<"' AND rosterusers.subscription = 'B') OR confessions.jid = '">>),binary_to_list(MyJIDString),binary_to_list(<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>)],"")
+			string:join([binary_to_list(<<"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.username = confessions.jid WHERE (confessions.created_timestamp > '">>),SinceString,binary_to_list(<<"') AND ((rosterusers.username = '">>),binary_to_list(User),binary_to_list(<<"' AND rosterusers.subscription = 'B') OR confessions.jid = '">>),binary_to_list(User),binary_to_list(<<"') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100">>)],"")
 	end,
 
 
@@ -215,7 +215,7 @@ destroy_confession(#jid{user = User, server = Server,
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confessions WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,MyJIDString,<<"'">>]),
+                                [<<"DELETE FROM confessions WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"'">>]),
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Destroyed">>}]}]}.
 
@@ -228,7 +228,7 @@ toggle_favorite(#jid{user = User, server = Server,
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
         {_,_,Result} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confession_favorites WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,JIDString,<<"' ">>]),
+                                [<<"SELECT confession_id FROM confession_favorites WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"' ">>]),
 
         case (length(Result) > 0) of
                 true ->
@@ -248,7 +248,7 @@ add_favorite(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),	
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confession_favorites (jid, confession_id) VALUES ('">>,JIDString,<<"','">>,ConfessionId,<<"')">>]),
+                                [<<"INSERT INTO confession_favorites (jid, confession_id) VALUES ('">>,User,<<"','">>,ConfessionId,<<"')">>]),
 
 ok.
 
@@ -259,7 +259,7 @@ delete_favorite(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confession_favorites WHERE jid='">>,JIDString,<<"' AND confession_id='">>,ConfessionId,<<"'">>]),
+                                [<<"DELETE FROM confession_favorites WHERE jid='">>,User,<<"' AND confession_id='">>,ConfessionId,<<"'">>]),
 
 ok.
 
@@ -348,12 +348,6 @@ send_confession_packet_to_roster(#jid{user = User, server = Server,
 
 ok.
 
-
-
-delete_favorite(Server, ConfessionId, JIDString) ->
-	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confession_favorites WHERE jid='">>,JIDString,<<"' AND confession_id='">>,ConfessionId,<<"'">>]),
-ok.
 
 
 
