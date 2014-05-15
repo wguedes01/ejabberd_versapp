@@ -12,6 +12,10 @@
 
 
 -define(NS_CONFESSION, <<"who:iq:confession">>).
+-define(DEGREE_FRIEND_1, <<"1">>).
+-define(DEGREE_FRIEND_2, <<"2">>).
+-define(DEGREE_FRIEND_3, <<"3">>).
+-define(DEGREE_GLOBAL, <<"global">>).
 
 
 -export([start/2, stop/1]).
@@ -24,6 +28,8 @@
 -export([get_roster_entries/2]).
 %%Methods to manage pakcets
 -export([build_confession_packet/5, send_confession_packet/3, send_confession_packet_to_roster/2, send_confession_alert/2 ]).
+
+-export([get_confessions_with_degree/3, build_select_query/4, query_result_to_confession_list/2]).
 
 %%Util
 -export([get_timestamp/0]).
@@ -51,7 +57,8 @@ handle_confession_iq(#jid{user = User, server = Server,
 		      resource = Resource} = From,
 		 _To, #iq{type = get, sub_el = SubEl} = IQ) ->
 
-	get_confessions(From, SubEl, IQ);
+	%% get_confessions(From, SubEl, IQ);
+	get_confessions_with_degree(From, SubEl, IQ);
 
 %%Respond to SET requests.
 handle_confession_iq(#jid{user = User, server = Server,
@@ -205,6 +212,82 @@ get_confessions(#jid{user = User, server = Server,
 
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Filtered2)}]}]}.
+
+
+
+get_confessions_with_degree(#jid{user = User, server = Server,
+                      resource = _R} = From, Tag, IQ) ->
+
+	?INFO_MSG("\n\n\nBEGIN GET WITH DEGREE", []),
+
+	MyJIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
+	SinceString = binary_to_list(xml:get_subtag_cdata(Tag, <<"since">>)),
+
+	%% Gets degree of connectivity.
+	Degree = xml:get_subtag_cdata(Tag, <<"degree">>),
+
+
+	%% Creates SQL Query that will be executed based on the degree of connectivity provided.
+	Query = build_select_query(Degree, binary_to_list(MyJIDString), binary_to_list(User), SinceString),
+
+	?INFO_MSG("\n\n\nTHE QUERY REQUESTED IS: ~p", [Query]),
+
+	{_, _, Result} = ejabberd_odbc:sql_query(Server, [Query]),
+
+	Confessions = query_result_to_confession_list(Result, Degree),
+
+	IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Confessions)}]}]}.
+
+%% Gets the result of a query and converts it into a formatted list of confessions.
+query_result_to_confession_list(Result, Degree) ->
+
+	Filtered = lists:map(fun(ConfessionTerms)->
+			
+			%% Adds degree of connectivity to the end of the confession set.
+			NewConfessionTerms = lists:append(ConfessionTerms, [Degree]),					
+
+			%% Convert each item in the confession set from binary to list.
+                        lists:map(fun(Term)->
+                                case Term of
+                                        null ->
+                                                "";
+                                        _ ->
+                                                binary_to_list(Term)
+                                end
+                         end, NewConfessionTerms)
+        end,Result),
+
+        ?INFO_MSG("Result FILTERED: ~p", [Filtered]),
+
+
+
+        Filtered2 = lists:map(fun(Confession)->
+
+                lists:flatten(io_lib:format("~p", [Confession]))
+
+        end, Filtered),
+
+	Filtered2.
+
+build_select_query(?DEGREE_FRIEND_1, JIDString, Username, SinceString)->
+
+	"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid)AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN 	(SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "') OR confessions.jid = '" ++ Username ++ "' GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100";
+
+build_select_query(?DEGREE_FRIEND_2, JIDString, Username, SinceString)->
+	
+	"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN (SELECT DISTINCT username FROM rosterusers WHERE jid IN (SELECT jid FROM rosterusers WHERE username = '" ++ Username ++ "') AND username != '" ++ Username ++ "') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100";
+
+build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
+	
+	"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN (SELECT DISTINCT username FROM rosterusers WHERE jid IN (SELECT jid FROM rosterusers WHERE username IN (SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "') AND jid != '" ++ JIDString ++ "') AND username NOT IN (SELECT DISTINCT username FROM rosterusers WHERE jid IN (SELECT jid FROM rosterusers WHERE username = '" ++ Username ++ "') AND username != '" ++ Username ++ "') ) OR confessions.jid = '" ++ Username ++ "' GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100";
+
+build_select_query(?DEGREE_GLOBAL, JIDString, Username, SinceString)->
+
+	"SELECT confessions.*, GROUP_CONCAT(DISTINCT confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(DISTINCT confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id LEFT JOIN rosterusers ON rosterusers.username = confessions.jid WHERE (confessions.created_timestamp > '" ++ SinceString ++ "') GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100";
+
+build_select_query(_Other, JIDString, Username, SinceString)->
+"".
+
 
 
 destroy_confession(#jid{user = User, server = Server,
