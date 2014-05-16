@@ -106,6 +106,7 @@ create_chat(#jid{user = User, server = Server,
 
 	ChatId = binary_to_list(xml:get_subtag_cdata(TagEl, <<"id">>)),
 	ChatName = binary_to_list(xml:get_subtag_cdata(TagEl, <<"name">>)),
+	Degree = binary_to_list(xml:get_subtag_cdata(TagEl, <<"degree">>)), %% dEGREE OF CONNECTION
 	OwnerId = binary_to_list(xml:get_subtag_cdata(TagEl, <<"owner_id">>)),
 	#xmlel{children = Participants} = xml:get_subtag(TagEl, <<"participants">>),
 
@@ -120,8 +121,8 @@ create_chat(#jid{user = User, server = Server,
 
 	%%Creates Chat.
 	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO chat (id, type, owner_id, name, created) VALUES
-                                         ('">>,ChatId,<<"', '">>,ChatType,<<"','">>, OwnerId, <<"','">>,ChatName,<<"','">>,CreatedTimestamp,<<"')">>]),
+                                [<<"INSERT INTO chat (id, type, owner_id, name, created, degree) VALUES
+                                         ('">>,ChatId,<<"', '">>,ChatType,<<"','">>, OwnerId, <<"','">>,ChatName,<<"','">>,CreatedTimestamp,<<"', '">>,Degree,<<"')">>]),
 
 	?INFO_MSG("\nParticipants: ~p", [Participants]),
 
