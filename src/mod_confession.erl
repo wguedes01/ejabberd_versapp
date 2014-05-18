@@ -284,7 +284,6 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
  		"(SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "') " ++ 
 		"OR confessions.jid = '" ++ Username ++ "' " ++ 
 	"GROUP BY confessions.confession_id " ++ 
-	"LIMIT 50 " ++
 	"UNION SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites, '" ++ binary_to_list(?DEGREE_FRIEND_2) ++ "' AS connection " ++ 
 	"FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id " ++
 	"WHERE confessions.jid IN " ++
@@ -295,7 +294,6 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
 		"AND username != '" ++ Username ++ "' " ++
 	"AND confessions.jid != '" ++ Username ++ "' " ++ 
 	"GROUP BY confessions.confession_id " ++
-	"LIMIT 25 " ++
 	"UNION SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites, '" ++ binary_to_list(?DEGREE_FRIEND_3) ++ "' AS connection " ++ 
 	"FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN " ++
 		"(SELECT DISTINCT username FROM rosterusers WHERE jid IN " ++ 
@@ -307,7 +305,6 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
 				"(SELECT jid FROM rosterusers WHERE username = '" ++ Username ++ "') " ++ 
 			"AND username != '" ++ Username ++ "') ) " ++
  	"AND confessions.jid != '" ++ Username ++ "' " ++
-	"LIMIT 25 " ++ 
 	"GROUP BY confessions.confession_id ORDER BY created_timestamp ASC LIMIT 100";
 
 	
