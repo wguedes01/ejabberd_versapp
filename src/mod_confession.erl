@@ -283,8 +283,8 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
 	"WHERE confessions.jid IN " ++
  		"(SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "') " ++ 
 		"OR confessions.jid = '" ++ Username ++ "' " ++
+	"GROUP BY confessions.confession_id " ++
 	"LIMIT 50 " ++ 
-	"GROUP BY confessions.confession_id " ++ 
 	"UNION SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites, '" ++ binary_to_list(?DEGREE_FRIEND_2) ++ "' AS connection " ++ 
 	"FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id " ++
 	"WHERE confessions.jid IN " ++
@@ -293,7 +293,8 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
 		"AND username NOT IN " ++
 			"(SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "')) " ++
 	"AND confessions.jid != '" ++ Username ++ "' " ++ 
-	"GROUP BY confessions.confession_id " ++
+	"GROUP BY confessions.confession_id " ++ 
+	"LIMIT 25 " ++
 	"UNION SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites, '" ++ binary_to_list(?DEGREE_FRIEND_3) ++ "' AS connection " ++ 
 	"FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN " ++
 		"(SELECT DISTINCT username FROM rosterusers WHERE jid IN " ++ 
@@ -306,7 +307,7 @@ build_select_query(?DEGREE_FRIEND_3, JIDString, Username, SinceString)->
 			"AND username != '" ++ Username ++ "') ) " ++
  	"AND confessions.jid != '" ++ Username ++ "' " ++
 	"GROUP BY confessions.confession_id " ++
-	"LIMIT 25 ORDER BY created_timestamp ASC";
+	"ORDER BY created_timestamp ASC LIMIT 100";
 
 	
 %%	"SELECT confessions.*, GROUP_CONCAT(confession_favorites.jid SEPARATOR ', ') AS favorited_users, count(confession_favorites.jid) AS num_favorites FROM confessions LEFT JOIN confession_favorites ON confessions.confession_id = confession_favorites.confession_id WHERE confessions.jid IN (SELECT DISTINCT username FROM rosterusers WHERE jid IN (SELECT jid FROM rosterusers WHERE username IN (SELECT username FROM rosterusers WHERE jid = '" ++ JIDString ++ "') AND jid != '" ++ JIDString ++ "') AND username NOT IN (SELECT DISTINCT username FROM rosterusers WHERE jid IN (SELECT jid FROM rosterusers WHERE username = '" ++ Username ++ "') AND username != '" ++ Username ++ "') ) OR confessions.jid = '" ++ Username ++ "' GROUP BY confessions.confession_id ORDER BY confessions.created_timestamp ASC LIMIT 100";
