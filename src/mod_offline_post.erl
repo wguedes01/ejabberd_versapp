@@ -77,6 +77,8 @@ send_notice(From, To, Packet) ->
     ?INFO_MSG("\nOFFLINE POST: \n", []),
     ?INFO_MSG("\nType: ~p - Body: ~p - Token: ~p\n", [Type, Body, Token]),
 
+    
+
     if (Type == <<"chat">>) and (Body /= <<"">>) and (Token /= <<"">>)->
 	      Sep = "&",
         Post = [
