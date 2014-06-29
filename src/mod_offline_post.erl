@@ -34,10 +34,14 @@
 	 init/2,
 	 stop/1,
 	 send_notice/3,
-	 send_post/6,
-	 dispatch_post_by_type/7]).
+	 send_notice_group/3,
+	 send_post/5,
+	 dispatch_post_by_type/6,
+	 get_active_group_participants/1]).
 
 -define(PROCNAME, ?MODULE).
+-define(SERVER, <<"versapp.co">>).
+-define(PARTICIPANT_ACTIVE_STATUS, <<"active">>).
 
 -include("ejabberd.hrl").
 -include("jlib.hrl").
@@ -50,7 +54,6 @@ start(Host, Opts) ->
     AuthToken = gen_mod:get_module_opt(Host, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("default")),
     PostUrl = gen_mod:get_module_opt(Host, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("default")),
     ?INFO_MSG("\n\nAuthToken: ~p - PostUrl: ~p\n", [AuthToken, PostUrl]),
-%%    register(?PROCNAME,spawn(?MODULE, init, [Host, Opts])),  
     register(gen_mod:get_module_proc(Host, ?PROCNAME),
 	     proc_lib:spawn(?MODULE, init, [Host, Opts])),
     ?INFO_MSG("REGISTERED", [] ),
@@ -59,11 +62,13 @@ start(Host, Opts) ->
 init(Host, _Opts) ->
     inets:start(),
     ssl:start(),
+    ?INFO_MSG("Starting mod_offline_post. Host: ~p", [Host]),
     ejabberd_hooks:add(offline_message_hook, Host, ?MODULE, send_notice, 10),
+    ejabberd_hooks:add(user_send_packet, Host, ?MODULE, send_notice_group, 11),
     ok.
 
 stop(Host) ->
-    ?INFO_MSG("Stopping mod_offline_post", [] ),
+    ?INFO_MSG("Stopping mod_offline_post.", [] ),
     ejabberd_hooks:delete(offline_message_hook, Host,
 			  ?MODULE, send_notice, 10),
     ok.
@@ -74,11 +79,29 @@ send_notice(From, To, Packet) ->
     Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
     ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-    AccessToken = get_token(To),
     PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
-    ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p - AccessToken: ~p\n", [Type, Body, AccessToken]),
-    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, AccessToken).
+    ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p\n", [Type, Body]),
+    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken).
+
+%% 'groupchat' messages do not activate offline_message_hook so I had to create this method hooked with 'user_send_packet'. This is a little hacky but needed to do.
+send_notice_group(From, To, Packet)->
+    
+    Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
+    Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
+    ConnectionToken = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+    PostUrl = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+
+    ?INFO_MSG("\n\n\nSEND_NOTICE_GROUP", []),
+
+    %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent. 
+    case Type of
+	<<"groupchat">> ->
+		dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken);
+	_->
+		ok
+    end,
+ok.
 
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
@@ -123,31 +146,46 @@ old_integer_to_hex(I) when I >= 16 ->
     N = trunc(I/16),
     old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
 
-dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
-	send_post(From, To, Body, PostUrl, ConnectionToken, AccessToken);
+dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken)->
+	send_post(From#jid.luser, To#jid.luser, Body, PostUrl, ConnectionToken);
 
-dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken)->
+
+	Participants = get_active_group_participants(To#jid.luser),
+
+	FilteredParticipants = lists:delete(From#jid.luser, Participants),
+
+	?INFO_MSG("\n\nGROUPCHAT DISPATCH: From: ~p, To: ~p\nParticipants: ~p", [From, To, FilteredParticipants]),
+
+	lists:foreach( fun(Participant)->
+		?INFO_MSG("\nSending to participant in group (offline): ~p", [Participant]),
+		send_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken)
+	end, FilteredParticipants),	
+	
 
         ok;
-dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken)->
 	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
         ok.
 
 
-send_post(From, To, Body, PostUrl, ConnectionToken, AccessToken)->
-	?INFO_MSG("Sending offline post.", []),
+send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
+	?INFO_MSG("Sending offline post to: ~p. JID: ~p, ConnectionToken: ~p, AccessToken: ~p, PostUrl: ~p, Body: ~p, From: ~p", [ToString, jlib:make_jid(ToString, ?SERVER, <<"">>), ConnectionToken, get_token(jlib:make_jid(ToString, ?SERVER, <<"">>)), PostUrl, Body, FromString]),
 	Sep = "&",
         Post = [
           "token=", ConnectionToken, Sep,
-          "to=", To#jid.luser, Sep,
-          "from=", From#jid.luser, Sep,
+          "to=", ToString, Sep,
+          "from=", FromString, Sep,
           "body=", url_encode(binary_to_list(Body)), Sep,
-          "access_token=", AccessToken],
+          "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))],
         
 	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
         
 	ok.
 
 
+get_active_group_participants(ChatId)->
+	{_,_, Result} = ejabberd_odbc:sql_query(?SERVER,
+                                [<<"SELECT p.username FROM participants p WHERE chat_id='">>,ChatId,<<"' AND status='active' AND username NOT IN (SELECT username FROM session)">>]),
 
-
+	lists:flatten(Result).

@@ -63,6 +63,7 @@ stop(Host) ->
     ok.
 
 send_available_notice(User, Server, _Resource, _Packet) ->
+    ?INFO_MSG("\n\nSENDING AVAILABLE NOTICE: User: ~p, Server:~p", [User, Server] ),
     Token = gen_mod:get_module_opt(Server, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
     PostUrl = gen_mod:get_module_opt(Server, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
     if (Token /= "") ->
