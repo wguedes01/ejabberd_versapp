@@ -33,7 +33,9 @@
 -export([start/2,
 	 init/2,
 	 stop/1,
-	 send_notice/3]).
+	 send_notice/3,
+	 send_post/6,
+	 dispatch_post_by_type/7]).
 
 -define(PROCNAME, ?MODULE).
 
@@ -68,31 +70,15 @@ stop(Host) ->
 
 send_notice(From, To, Packet) ->
     ?INFO_MSG("\n\n\n\nsend_notice(): \n", []),
+    
     Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
     ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-    Token = get_token(To),
+    AccessToken = get_token(To),
     PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
-    ?INFO_MSG("\nOFFLINE POST: \n", []),
-    ?INFO_MSG("\nType: ~p - Body: ~p - Token: ~p\n", [Type, Body, Token]),
-
-    
-
-    if (Type == <<"chat">>) and (Body /= <<"">>) and (Token /= <<"">>)->
-	      Sep = "&",
-        Post = [
-	  "token=", ConnectionToken, Sep,
-          "to=", To#jid.luser, Sep,
-          "from=", From#jid.luser, Sep,
-          "body=", url_encode(binary_to_list(Body)), Sep,
-          "access_token=", Token],
-        ?INFO_MSG("\n\n\nSending post request to ~s with body \"~s\"", [PostUrl, Post]),
-	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
-	ok;
-      true ->
-        ok
-    end.
+    ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p - AccessToken: ~p\n", [Type, Body, AccessToken]),
+    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, AccessToken).
 
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
@@ -136,4 +122,32 @@ old_integer_to_hex(I) when I < 16 ->
 old_integer_to_hex(I) when I >= 16 ->
     N = trunc(I/16),
     old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
+
+dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+	send_post(From, To, Body, PostUrl, ConnectionToken, AccessToken);
+
+dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+
+        ok;
+dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
+        ok.
+
+
+send_post(From, To, Body, PostUrl, ConnectionToken, AccessToken)->
+	?INFO_MSG("Sending offline post.", []),
+	Sep = "&",
+        Post = [
+          "token=", ConnectionToken, Sep,
+          "to=", To#jid.luser, Sep,
+          "from=", From#jid.luser, Sep,
+          "body=", url_encode(binary_to_list(Body)), Sep,
+          "access_token=", AccessToken],
+        
+	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
+        
+	ok.
+
+
+
 
