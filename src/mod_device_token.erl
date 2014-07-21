@@ -86,9 +86,16 @@ length(TokenResult) > 0.
 get_token(#jid{user = User, server = Server,
                       resource = Resource} = From)->
 
-	{_, _, [[Token]]} = {_,_, TokenResult} = ejabberd_odbc:sql_query(Server,
+	{_, _, Res} = {_,_, TokenResult} = ejabberd_odbc:sql_query(Server,
                                 [<<"SELECT token FROM device_tokens WHERE username='">>,User,<<"' AND token IS NOT NULL LIMIT 1">>]),
-
+	
+	[[Token]] = case length(Res) > 0 of
+		true ->
+			Res;
+		_ ->
+			[[<<"">>]]
+	end,
+	
 	?INFO_MSG("\n\nToken is: ~p", [Token]),
 
 Token.
