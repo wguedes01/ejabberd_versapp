@@ -18,12 +18,18 @@
 -export([add_participant/5, get_all_participants/3, handle_participant_set_request/4, update_participant/5, get_participant/3]).
 -export([start/2, stop/1, start_chat_mod/3, get_chat_participants/2]).
 
+-export([on_user_send_packet/3]).
+
 start(Host, Opts) ->
 
 	?INFO_MSG("STARTED MOD_CHAT",[]),
 
 	IQDisc = gen_mod:get_opt(iqdisc, Opts, fun gen_iq_handler:check_type/1,
                              one_queue),
+
+	?INFO_MSG("Registering on_user_send_packet for chat", []),
+	ejabberd_hooks:add(user_send_packet, Host, ?MODULE, on_user_send_packet, 4),
+
 	
 	gen_iq_handler:add_iq_handler(ejabberd_local, Host, ?NS_CHAT, ?MODULE, handle_local_iq, IQDisc),
 	ok.
@@ -32,6 +38,8 @@ stop(Host) ->
 
 	?INFO_MSG("STOPED MOD_CHAT",[]),
 
+	ejabberd_hooks:delete(user_send_packet, Host, ?MODULE, on_user_send_packet, 4),
+	
 	gen_iq_handler:remove_iq_handler(ejabberd_local, Host, ?NS_CHAT),
 	ok.
 
@@ -602,3 +610,31 @@ get_timestamp()->
 	{Mega, Secs, _} = now(),
         CreatedTimestamp = io_lib:format("~p", [Mega*1000000 + Secs]),
 	CreatedTimestamp.
+
+
+
+on_user_send_packet(#jid{user = User, server = Server,
+                      resource = Resource} = From, #jid{user = ToUser, server = ToServer, resource = _R2} = To, #xmlel{name = <<"message">>, attrs = Attrs, children = Children} = Packet) ->
+
+        %% Check if user is blocked before turning chat active? I don't think so because the block check happens before and if blocked, it will drop packet I think...
+
+
+	Thread = xml:get_subtag_cdata(Packet, <<"thread">>),
+	Type = xml:get_attr_s(<<"type">>, Attrs),
+
+	case Type == <<"chat">> of
+		true ->
+			ejabberd_odbc:sql_query(Server,
+                                [<<"UPDATE participants SET status='active' WHERE chat_id='">>,Thread,<<"' AND username='">>,ToUser,<<"'">>]);
+		_ ->
+			[]
+	end,
+
+
+	?INFO_MSG("\n\nGETTING HERE INSIDE ON_USER_SEND_PACKET?? JID: ~p. Type: ~p", [ Thread, Type ]),
+
+	
+
+        ?INFO_MSG("\nPacket Info:\n\n Name: ~p.\nAttrs: ~p.\nChildren: ~p.\nAll: ~p", [<<"message">>, Attrs, Children, Packet]),
+
+Packet.
