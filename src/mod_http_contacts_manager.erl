@@ -104,7 +104,7 @@ process([<<"store">>], Request) ->
 	lists:foreach(fun(El)-> 
 		
 		%% SENDS BROADCAST TO USERS NOTIFYING THEM SOMEONE ADDED THEM TO THEIR ROSTER
-		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(El,binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"Helooo">>]))
+		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(El,binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"You have a new friend in Versapp!">>]))
 
 	end, Reg),
 

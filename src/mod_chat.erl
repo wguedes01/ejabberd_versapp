@@ -31,7 +31,7 @@ start(Host, Opts) ->
 stop(Host) ->
 
 	?INFO_MSG("STOPED MOD_CHAT",[]),
-	
+
 	gen_iq_handler:remove_iq_handler(ejabberd_local, Host, ?NS_CHAT),
 	ok.
 
