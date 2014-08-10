@@ -30,11 +30,12 @@
 
 -export([get_confessions_with_degree/3, build_select_query/4, query_result_to_confession_list/2]).
 
+
 %%Util
 -export([get_timestamp/0]).
 
--import(mod_admin_extra, [send_packet_all_resources/3]).
 
+-import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
 
 start(Host, Opts) ->
 
@@ -381,8 +382,18 @@ toggle_favorite(#jid{user = User, server = Server,
                         delete_favorite(JID, ConfessionId);
                 false ->
 			?INFO_MSG("Adding favorite!!!", []),
-                        add_favorite(JID, ConfessionId)
+                        add_favorite(JID, ConfessionId),
                       %%  send_confession_alert(Server, ConfessionId)
+
+			%% Get username of person who created confession.
+			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
+                                [<<"SELECT jid FROM confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
+
+			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
+
+			CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
+
+			send_packet_all_resources(Server, CreatorJID, build_notification_packet())
         end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
@@ -451,25 +462,7 @@ RosterEntries.
 
 send_confession_alert(Server, ConfessionId) ->
 
-	{_,_,Confession} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT * from confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
-
-	[{CId, OwnerJIDString, Body, ImageUrl, CreatedTimestamp}] = Confession,
-
-	?INFO_MSG("Confession: ~p", [Confession]),
-
-
-	Packet = {xmlelement, "message", [{"type", "headline"}, {"id", randoms:get_string()}],  [{xmlelement, "body", [], [{xmlcdata, Body}]}, {xmlelement, "subject", [], [{xmlcdata, "confession_subject"}]}, {xmlelement, "properties", [{"xmlns", "http://www.jivesoftware.com/xmlns/xmpp/properties"}], [{xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"confession_favorite_alert">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, ["true"]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"created_time">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [CreatedTimestamp]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"confession_id">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [ConfessionId]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"image_url">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [ImageUrl]}]}]}]}] },
-
-        To = jlib:string_to_jid(OwnerJIDString),
-        ToUser = To#jid.user,
-        ToServer = To#jid.server,
-
-        ?INFO_MSG("Got here...", []),
-
-        ToJID = jlib:make_jid(ToUser, ToServer, ""),
-        ejabberd_router:route(ToJID, ToJID, Packet).
-
+ok.
 
 send_confession_packet_to_roster(#jid{user = User, server = Server,
                       resource = Resource}, Packet) ->
@@ -494,7 +487,16 @@ send_confession_packet_to_roster(#jid{user = User, server = Server,
 ok.
 
 
+build_notification_packet() ->
+    {xmlel, <<"message">>,
+     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [{xmlel, <<"body">>, [], [{xmlcdata, <<"Someone just favorited your thought!">>}]},
 
+
+                #xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]}   ]}
+
+
+                ]}.
 
 
 get_timestamp()->
