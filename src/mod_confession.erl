@@ -393,7 +393,9 @@ toggle_favorite(#jid{user = User, server = Server,
 
 			CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
 
-			send_packet_all_resources(Server, CreatorJID, build_notification_packet())
+			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+
+			send_packet_all_resources(Server, CreatorJID, build_notification_packet(FavoriteAlertJSON))
         end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
@@ -487,10 +489,10 @@ send_confession_packet_to_roster(#jid{user = User, server = Server,
 ok.
 
 
-build_notification_packet() ->
+build_notification_packet(Body) ->
     {xmlel, <<"message">>,
      [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
-     [{xmlel, <<"body">>, [], [{xmlcdata, <<"Someone just favorited your thought!">>}]},
+     [{xmlel, <<"body">>, [], [{xmlcdata, list_to_binary(Body)}]},
 
 
                 #xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]}   ]}
