@@ -40,14 +40,22 @@ add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From
                         ?INFO_MSG("\n\nInside mod_add_timestamp: Xml:\n ~p", [Xml]),
                         ?INFO_MSG("get_sub_tag properties:\n ~p", [xml:get_subtag(Xml, <<"properties">>)]),
 
-%                       ejabberd_odbc:sql_query(Server,
- %                               [<<"INSERT INTO message_log (to, from, timestamp, packet) VALUES
-  %                                       ('">>,ChatId,<<"', '">>,ChatType,<<"','">>, OwnerId, <<"','">>,ChatName,<<"','">>,CreatedTimestamp,<<"', '">>,Degree,<<"')">>]),
 
                         BodyEl = xml:get_subtag(Xml, <<"body">>),
                         ThreadEl = xml:get_subtag(Xml, <<"thread">>),
                         #xmlel{name = PName, attrs = PAttrs, children = PList} = xml:get_subtag(Xml, <<"properties">>),
 
+%%			{xmlel,<<"body">>,[],[{xmlcdata,Body}]}	= BodyEl,			
+
+%%			case ToUser == FromUser of
+%%
+  %%                              false ->
+    %%    	                   ?INFO_MSG("\n\nmysql : ~p",[             ejabberd_odbc:sql_query(Server,                                         
+ %%	                                               [<<"INSERT INTO messages_log (to_user, from_user, body_length) VALUES ('">>,ToUser,<<"', '">>,FromUser,<<"', 10">>])    ]);
+   %%                             true ->
+     %%                                   []
+       %%                 end,
+%%
                         [Timestamp] = get_timestamp(),
 
                         TSTerm = list_to_binary(Timestamp),

@@ -492,10 +492,14 @@ ok.
 build_notification_packet(Body) ->
     {xmlel, <<"message">>,
      [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
-     [{xmlel, <<"body">>, [], [{xmlcdata, list_to_binary(Body)}]},
+     [
 
 
-                #xmlel{name = <<"broadcast">>, attrs = [], children = [#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]}   ]}
+                #xmlel{name = <<"broadcast">>, attrs = [], 
+			children = [
+				#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]},
+				#xmlel{ name = <<"content">>, attrs = [], children = [{xmlcdata, list_to_binary(Body)}]}
+			]}
 
 
                 ]}.
