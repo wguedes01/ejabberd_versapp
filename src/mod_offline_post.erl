@@ -164,6 +164,15 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken)
 	
 
         ok;
+dispatch_post_by_type(<<"thought">>, _, To, Body, _, _)->
+
+	?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [To, Body]),
+
+	ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+	PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+
+        send_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken),
+	?INFO_MSG("\nThought Notification Sent", []);
 dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken)->
 	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
         ok.

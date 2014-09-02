@@ -25,14 +25,14 @@
 -export([create_confession/3, insert_confession_into_db/3, get_confessions/3, destroy_confession/3]).
 -export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
 -export([get_roster_entries/2]).
-%%Methods to manage pakcets
--export([build_confession_packet/5, send_confession_packet/3, send_confession_packet_to_roster/2, send_confession_alert/2 ]).
 
 -export([get_confessions_with_degree/3, build_select_query/4, query_result_to_confession_list/2]).
 
 
 %%Util
 -export([get_timestamp/0]).
+
+-import(mod_offline_post, [dispatch_post_by_type/6]).
 
 
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
@@ -94,8 +94,6 @@ create_confession(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
 
 	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
-
-	%% NOT WORKING AT ALL	send_confession_packet_to_roster(JID, build_confession_packet(ConfessionId, Username, Body, ImageUrl, CreatedTimestamp)),
 
 	Result = string:join([ConfessionId, CreatedTimestamp], ","),
 
@@ -395,6 +393,8 @@ toggle_favorite(#jid{user = User, server = Server,
 
 			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
 
+			dispatch_post_by_type(<<"thought">>, "", jlib:string_to_jid(CreatorJID), <<"Someone favorited your thought">>, "", ""),
+
 			send_packet_all_resources(Server, CreatorJID, build_notification_packet(FavoriteAlertJSON))
         end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
@@ -421,72 +421,10 @@ delete_favorite(#jid{user = User, server = Server,
 
 ok.
 
-
-
-
-build_confession_packet(ConfessionId, Username, Body, ImageUrl, CreatedTimestamp) ->
-
-%%		Packet = {xmlel, <<"message">>, [{<<"type">>, <<"headline">>}, {<<"id">>, list_to_binary(randoms:get_string())}],  [{xmlel, <<"body">>, [], [{xmlcdata, list_to_binary(Body)}]}, {xmlel, <<"subject">>, [], [{xmlcdata, <<"confession_subject">>}]}, {xmlel, <<"properties">>, [{<<"xmlns">>, <<"http://www.jivesoftware.com/xmlns/xmpp/properties">>}], [{xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"created_time">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(CreatedTimestamp)}]}]}, {xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"confession_id">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(ConfessionId)}]}]}, {xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"image_url">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(ImageUrl)}]}]}]}] },
-
-	Packet = [],
-
-Packet.
-
-send_confession_packet(FromJID, ToJID, Packet) ->
-
-
-	?INFO_MSG("FromJI: ~p. ToJID: ~p", [FromJID, ToJID]),
-
-	?INFO_MSG("Got here...", []),
-
-    	
-	Name = <<"mypacket">>,
-	NewAttrs = [{<<"id">>, <<"12345">>},{<<"from">>, <<"5745142948@ejabberd.whotheapp.com">>},{<<"to">>, <<"111111@ejabberd.whotheapp.com">>}],
-	Els = [{xmldata, <<"Hello John!">>}],
-
-	Packet2 = #xmlel{name = Name, attrs = NewAttrs,
-			 children = Els}, 
-
-
-	ejabberd_router:route(FromJID, jlib:string_to_jid(<<"111111@ejabberd.whotheapp.com">>), #xmlel{name = <<"route">>,
-					       attrs = [],
-						       children =
-							   [Packet2]}),
-
-
-	?INFO_MSG("SENT PACKET: ~p", [Packet]).	
-
 get_roster_entries(Username, Server) ->
 	{_,_,RosterEntries} = ejabberd_odbc:sql_query(Server,
                                 [<<"SELECT jid FROM rosterusers WHERE username='">>,Username,<<"'">>]),
 RosterEntries.
-
-
-send_confession_alert(Server, ConfessionId) ->
-
-ok.
-
-send_confession_packet_to_roster(#jid{user = User, server = Server,
-                      resource = Resource}, Packet) ->
-
-	FromJID = jlib:make_jid(User,Server, <<"">>),
-
-       %% JIDString = binary_to_list(jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>))),
-
-	lists:foreach(fun(Entry)->
-
-		[ToJIDTerm] = Entry,
-		%%ToJIDString = binary_to_list(ToJIDTerm),
-		ToJIDString = ToJIDTerm,
-		ToJID = jlib:string_to_jid(ToJIDString),
-
-		?INFO_MSG("\n\nSending message to ~p.", [ToJIDString]),
-	
-		send_confession_packet(FromJID, ToJID, Packet)
-
-		 end, get_roster_entries(User, Server)),
-
-ok.
 
 
 build_notification_packet(Body) ->
