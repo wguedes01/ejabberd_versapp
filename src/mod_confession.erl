@@ -389,14 +389,12 @@ toggle_favorite(#jid{user = User, server = Server,
 
 			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
 
-			CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
+			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
 
-			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
 
-			dispatch_post_by_type(<<"thought">>, "", jlib:string_to_jid(CreatorJID), <<"Someone favorited your thought">>, "", ""),
-
-			send_packet_all_resources(Server, CreatorJID, build_notification_packet(FavoriteAlertJSON))
-        end,
+        		send_confession_favorited_notification(ConfessionId, CreatorJID)
+	end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
 
@@ -442,6 +440,25 @@ build_notification_packet(Body) ->
 
                 ]}.
 
+
+send_confession_favorited_notification(ConfessionId, ToJID)->
+	
+	Server = ToJID#jid.lserver,
+
+	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+
+        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
+
+	send_confession_favorited_push_notification(ToJID),
+
+ok.
+
+send_confession_favorited_push_notification(ToJID)->
+
+	%% If last dispatch was 30 min ago, push notification.
+
+	dispatch_post_by_type(<<"thought">>, "", ToJID, <<"Someone favorited your thought">>, "", ""),
+ok.
 
 get_timestamp()->
 {Mega, Secs, _} = now(),
