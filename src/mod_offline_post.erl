@@ -37,6 +37,7 @@
 	 send_notice_group/3,
 	 send_post/5,
 	 dispatch_post_by_type/6,
+	 dispatch_confession_post/3,
 	 get_active_group_participants/1]).
 
 -define(PROCNAME, ?MODULE).
@@ -164,18 +165,19 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken)
 	
 
         ok;
-dispatch_post_by_type(<<"thought">>, _, To, Body, _, _)->
-
-	?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [To, Body]),
-
-	ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-	PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-
-        send_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken),
-	?INFO_MSG("\nThought Notification Sent", []);
 dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken)->
 	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
         ok.
+
+dispatch_confession_post(To, Body, ConfessionId )->
+        
+        ?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [To, Body]),
+
+        ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+        PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+        
+        send_custom_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken, [{"confession_id", ConfessionId}]),
+        ?INFO_MSG("\nThought Notification Sent", [ ]).
 
 
 send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
@@ -191,6 +193,26 @@ send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
 	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
         
 	ok.
+
+% ExtraParamList follows: [{key,val},{key,val},...]
+send_custom_post(FromString, ToString, Body, PostUrl, ConnectionToken, ExtraParamList) ->
+
+	%% Takes a list of tuples representing key,val pairs and transforms it into a post param string.
+	ExtraPostParamString = lists:flatten(string:join(lists:map(fun(El)-> {Key, Val} = El,  [Key, "=", Val]  end, ExtraParamList), "&")),
+
+	Sep = "&",
+        Post = [
+          "token=", ConnectionToken, Sep,
+          "to=", ToString, Sep,
+          "from=", FromString, Sep,
+          "body=", url_encode(binary_to_list(Body)), Sep,
+          "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))] ++ Sep ++ ExtraPostParamString,
+
+	?INFO_MSG( "\nPost associated with notification. ", [ list_to_binary(Post) ] ),
+
+        httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
+
+ok.
 
 
 get_active_group_participants(ChatId)->

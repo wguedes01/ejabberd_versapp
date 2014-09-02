@@ -32,7 +32,7 @@
 %%Util
 -export([get_timestamp/0]).
 
--import(mod_offline_post, [dispatch_post_by_type/6]).
+-import(mod_offline_post, [dispatch_confession_post/3]).
 
 
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
@@ -485,7 +485,7 @@ send_confession_favorited_push_notification(ConfessionId, ToJID)->
 		true ->
 			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
 			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
-			dispatch_post_by_type(<<"thought">>, "", ToJID, <<"Someone favorited your thought">>, "", "")
+			dispatch_confession_post(ToJID, <<"Someone favorited your thought">>, ConfessionId)
 	end,
 
 	case Action of
