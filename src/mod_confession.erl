@@ -445,19 +445,64 @@ send_confession_favorited_notification(ConfessionId, ToJID)->
 	
 	Server = ToJID#jid.lserver,
 
-	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+%	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
 
-        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
+%        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
 
-	send_confession_favorited_push_notification(ToJID),
+
+	send_confession_favorited_push_notification(ConfessionId, ToJID),
 
 ok.
 
-send_confession_favorited_push_notification(ToJID)->
+send_confession_favorited_push_notification(ConfessionId, ToJID)->
 
 	%% If last dispatch was 30 min ago, push notification.
+	{_,_, LastSentTimestampResult} = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"SELECT last_push_timestamp FROM last_push_notifications WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
 
-	dispatch_post_by_type(<<"thought">>, "", ToJID, <<"Someone favorited your thought">>, "", ""),
+
+	CurrentTime = element(1, now()) * 10000 + element(2, now()),
+	
+	Action = case LastSentTimestampResult of
+			[] ->
+				{true, send_and_insert};
+			[[LastSentTime]] ->
+				case (CurrentTime - binary_to_integer(LastSentTime)) > 600 of
+					true -> 
+						{true, send_and_update};
+					false ->
+						{false, do_not_send}
+				end
+		end,
+
+	?INFO_MSG("\n\n\nACTIPN: ~p - ~p", [LastSentTimestampResult, Action]),
+
+	{ShouldSend, _} = Action,
+
+	case ShouldSend of
+		false ->
+			[];
+		true ->
+			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
+			dispatch_post_by_type(<<"thought">>, "", ToJID, <<"Someone favorited your thought">>, "", "")
+	end,
+
+	case Action of
+		{_, send_and_insert} ->
+			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"INSERT INTO last_push_notifications (username, last_push_timestamp) VALUES ('">>, ToJID#jid.luser ,<<"', ">>, integer_to_list(CurrentTime) ,<<")">>]),
+
+			?INFO_MSG("\n\nInsert: ~p", [Res]);
+		{_, send_and_update} ->
+			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"UPDATE last_push_notifications set last_push_timestamp=">>, integer_to_list(CurrentTime) ,<<" WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
+
+			?INFO_MSG("\n\nInsert: ~p", [Res]);
+		{false, _} ->
+			[]
+	end,	
+
 ok.
 
 get_timestamp()->
