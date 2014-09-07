@@ -40,6 +40,8 @@
 	 remove_user/3, store_type/0,
 	 plain_password_required/0]).
 
+-import(md5, [md5_hex/1]).
+
 -include("ejabberd.hrl").
 -include("logger.hrl").
 
@@ -53,7 +55,14 @@ plain_password_required() -> false.
 store_type() -> plain.
 
 %% @spec (User, Server, Password) -> true | false | {error, Error}
-check_password(User, Server, Password) ->
+check_password(User, Server, PassPlainText) ->
+
+    ?INFO_MSG("User logging with: ~p/~p", [User, PassPlainText]),
+
+    Password = list_to_binary(md5:md5_hex(PassPlainText)),
+
+    ?INFO_MSG("Encrypted: ~p", [Password]),
+
     case jlib:nodeprep(User) of
       error -> false;
       LUser ->
