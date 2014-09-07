@@ -25,16 +25,17 @@
 -export([create_confession/3, insert_confession_into_db/3, get_confessions/3, destroy_confession/3]).
 -export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
 -export([get_roster_entries/2]).
-%%Methods to manage pakcets
--export([build_confession_packet/5, send_confession_packet/3, send_confession_packet_to_roster/2, send_confession_alert/2 ]).
 
 -export([get_confessions_with_degree/3, build_select_query/4, query_result_to_confession_list/2]).
+
 
 %%Util
 -export([get_timestamp/0]).
 
--import(mod_admin_extra, [send_packet_all_resources/3]).
+-import(mod_offline_post, [dispatch_confession_post/3]).
 
+
+-import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
 
 start(Host, Opts) ->
 
@@ -93,8 +94,6 @@ create_confession(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
 
 	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
-
-	%% NOT WORKING AT ALL	send_confession_packet_to_roster(JID, build_confession_packet(ConfessionId, Username, Body, ImageUrl, CreatedTimestamp)),
 
 	Result = string:join([ConfessionId, CreatedTimestamp], ","),
 
@@ -381,9 +380,21 @@ toggle_favorite(#jid{user = User, server = Server,
                         delete_favorite(JID, ConfessionId);
                 false ->
 			?INFO_MSG("Adding favorite!!!", []),
-                        add_favorite(JID, ConfessionId)
+                        add_favorite(JID, ConfessionId),
                       %%  send_confession_alert(Server, ConfessionId)
-        end,
+
+			%% Get username of person who created confession.
+			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
+                                [<<"SELECT jid FROM confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
+
+			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
+
+			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
+
+			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
+
+        		send_confession_favorited_notification(ConfessionId, CreatorJID)
+	end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
 
@@ -408,94 +419,91 @@ delete_favorite(#jid{user = User, server = Server,
 
 ok.
 
-
-
-
-build_confession_packet(ConfessionId, Username, Body, ImageUrl, CreatedTimestamp) ->
-
-%%		Packet = {xmlel, <<"message">>, [{<<"type">>, <<"headline">>}, {<<"id">>, list_to_binary(randoms:get_string())}],  [{xmlel, <<"body">>, [], [{xmlcdata, list_to_binary(Body)}]}, {xmlel, <<"subject">>, [], [{xmlcdata, <<"confession_subject">>}]}, {xmlel, <<"properties">>, [{<<"xmlns">>, <<"http://www.jivesoftware.com/xmlns/xmpp/properties">>}], [{xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"created_time">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(CreatedTimestamp)}]}]}, {xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"confession_id">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(ConfessionId)}]}]}, {xmlel, <<"property">>, [], [{xmlel, <<"name">>, [], [{xmlcdata, <<"image_url">>}]}, {xmlel, <<"value">>, [{<<"type">>, <<"string">>}], [{xmlcdata, list_to_binary(ImageUrl)}]}]}]}] },
-
-	Packet = [],
-
-Packet.
-
-send_confession_packet(FromJID, ToJID, Packet) ->
-
-
-	?INFO_MSG("FromJI: ~p. ToJID: ~p", [FromJID, ToJID]),
-
-	?INFO_MSG("Got here...", []),
-
-    	
-	Name = <<"mypacket">>,
-	NewAttrs = [{<<"id">>, <<"12345">>},{<<"from">>, <<"5745142948@ejabberd.whotheapp.com">>},{<<"to">>, <<"111111@ejabberd.whotheapp.com">>}],
-	Els = [{xmldata, <<"Hello John!">>}],
-
-	Packet2 = #xmlel{name = Name, attrs = NewAttrs,
-			 children = Els}, 
-
-
-	ejabberd_router:route(FromJID, jlib:string_to_jid(<<"111111@ejabberd.whotheapp.com">>), #xmlel{name = <<"route">>,
-					       attrs = [],
-						       children =
-							   [Packet2]}),
-
-
-	?INFO_MSG("SENT PACKET: ~p", [Packet]).	
-
 get_roster_entries(Username, Server) ->
 	{_,_,RosterEntries} = ejabberd_odbc:sql_query(Server,
                                 [<<"SELECT jid FROM rosterusers WHERE username='">>,Username,<<"'">>]),
 RosterEntries.
 
 
-send_confession_alert(Server, ConfessionId) ->
-
-	{_,_,Confession} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT * from confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
-
-	[{CId, OwnerJIDString, Body, ImageUrl, CreatedTimestamp}] = Confession,
-
-	?INFO_MSG("Confession: ~p", [Confession]),
+build_notification_packet(Body) ->
+    {xmlel, <<"message">>,
+     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [
 
 
-	Packet = {xmlelement, "message", [{"type", "headline"}, {"id", randoms:get_string()}],  [{xmlelement, "body", [], [{xmlcdata, Body}]}, {xmlelement, "subject", [], [{xmlcdata, "confession_subject"}]}, {xmlelement, "properties", [{"xmlns", "http://www.jivesoftware.com/xmlns/xmpp/properties"}], [{xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"confession_favorite_alert">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, ["true"]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"created_time">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [CreatedTimestamp]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"confession_id">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [ConfessionId]}]}]}, {xmlelement, "property", [], [{xmlelement, "name", [], [{xmlcdata, <<"image_url">>}]}, {xmlelement, "value", [{"type", "string"}], [{xmlcdata, [ImageUrl]}]}]}]}] },
-
-        To = jlib:string_to_jid(OwnerJIDString),
-        ToUser = To#jid.user,
-        ToServer = To#jid.server,
-
-        ?INFO_MSG("Got here...", []),
-
-        ToJID = jlib:make_jid(ToUser, ToServer, ""),
-        ejabberd_router:route(ToJID, ToJID, Packet).
+                #xmlel{name = <<"broadcast">>, attrs = [], 
+			children = [
+				#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]},
+				#xmlel{ name = <<"content">>, attrs = [], children = [{xmlcdata, list_to_binary(Body)}]}
+			]}
 
 
-send_confession_packet_to_roster(#jid{user = User, server = Server,
-                      resource = Resource}, Packet) ->
+                ]}.
 
-	FromJID = jlib:make_jid(User,Server, <<"">>),
 
-       %% JIDString = binary_to_list(jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>))),
-
-	lists:foreach(fun(Entry)->
-
-		[ToJIDTerm] = Entry,
-		%%ToJIDString = binary_to_list(ToJIDTerm),
-		ToJIDString = ToJIDTerm,
-		ToJID = jlib:string_to_jid(ToJIDString),
-
-		?INFO_MSG("\n\nSending message to ~p.", [ToJIDString]),
+send_confession_favorited_notification(ConfessionId, ToJID)->
 	
-		send_confession_packet(FromJID, ToJID, Packet)
+	Server = ToJID#jid.lserver,
 
-		 end, get_roster_entries(User, Server)),
+%	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+
+%        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
+
+
+	send_confession_favorited_push_notification(ConfessionId, ToJID),
 
 ok.
 
+send_confession_favorited_push_notification(ConfessionId, ToJID)->
+
+	%% If last dispatch was 30 min ago, push notification.
+	{_,_, LastSentTimestampResult} = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"SELECT last_push_timestamp FROM last_push_notifications WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
 
 
+	CurrentTime = element(1, now()) * 10000 + element(2, now()),
+	
+	Action = case LastSentTimestampResult of
+			[] ->
+				{true, send_and_insert};
+			[[LastSentTime]] ->
+				case (CurrentTime - binary_to_integer(LastSentTime)) > 600 of
+					true -> 
+						{true, send_and_update};
+					false ->
+						{false, do_not_send}
+				end
+		end,
 
+	?INFO_MSG("\n\n\nACTIPN: ~p - ~p", [LastSentTimestampResult, Action]),
+
+	{ShouldSend, _} = Action,
+
+	case ShouldSend of
+		false ->
+			[];
+		true ->
+			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
+			dispatch_confession_post(ToJID, <<"Someone favorited your thought">>, ConfessionId)
+	end,
+
+	case Action of
+		{_, send_and_insert} ->
+			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"INSERT INTO last_push_notifications (username, last_push_timestamp) VALUES ('">>, ToJID#jid.luser ,<<"', ">>, integer_to_list(CurrentTime) ,<<")">>]),
+
+			?INFO_MSG("\n\nInsert: ~p", [Res]);
+		{_, send_and_update} ->
+			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
+                            [<<"UPDATE last_push_notifications set last_push_timestamp=">>, integer_to_list(CurrentTime) ,<<" WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
+
+			?INFO_MSG("\n\nInsert: ~p", [Res]);
+		{false, _} ->
+			[]
+	end,	
+
+ok.
 
 get_timestamp()->
 {Mega, Secs, _} = now(),

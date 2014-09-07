@@ -72,6 +72,7 @@
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
+-import(md5, [md5_hex/1]).
 
 %% Almost a copy of string:join/2.
 %% We use this version because string:join/2 is relatively
@@ -161,10 +162,20 @@ set_password_t(LServer, Username, Pass) ->
 				  end).
 
 add_user(LServer, Username, Pass) ->
+
+    ?INFO_MSG("About to encrypt: ~p/~p", [Username, Pass]),
+
+    EncryptedPassword = md5:md5_hex(binary_to_list(Pass)),
+
+    ?INFO_MSG("Encrypted. ~p", [ EncryptedPassword ]),
+
+    ?INFO_MSG("\nRegistering user. Username: ~p. Unencrypted Pass: ~p. Encrypted Pass: ~p",
+	[Username, Pass, EncryptedPassword]),
+
     ejabberd_odbc:sql_query(LServer,
 			    [<<"insert into users(username, password) "
 			       "values ('">>,
-			     Username, <<"', '">>, Pass, <<"');">>]).
+			     Username, <<"', '">>, EncryptedPassword, <<"');">>]).
 
 del_user(LServer, Username) ->
     ejabberd_odbc:sql_query(LServer,

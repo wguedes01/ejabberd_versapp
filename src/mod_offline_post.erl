@@ -36,7 +36,8 @@
 	 send_notice/3,
 	 send_notice_group/3,
 	 send_post/5,
-	 dispatch_post_by_type/6,
+	 dispatch_post_by_type/7,
+	 dispatch_confession_post/3,
 	 get_active_group_participants/1]).
 
 -define(PROCNAME, ?MODULE).
@@ -78,11 +79,13 @@ send_notice(From, To, Packet) ->
     
     Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
+    Thread = xml:get_path_s(Packet, [{elem, list_to_binary("thread")}, cdata]),
+
     ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
     PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
     ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p\n", [Type, Body]),
-    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken).
+    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}]).
 
 %% 'groupchat' messages do not activate offline_message_hook so I had to create this method hooked with 'user_send_packet'. This is a little hacky but needed to do.
 send_notice_group(From, To, Packet)->
@@ -97,7 +100,7 @@ send_notice_group(From, To, Packet)->
     %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent. 
     case Type of
 	<<"groupchat">> ->
-		dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken);
+		dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, []);
 	_->
 		ok
     end,
@@ -146,10 +149,10 @@ old_integer_to_hex(I) when I >= 16 ->
     N = trunc(I/16),
     old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
 
-dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken)->
-	send_post(From#jid.luser, To#jid.luser, Body, PostUrl, ConnectionToken);
+dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
+	send_custom_post(From#jid.luser, To#jid.luser, Body, PostUrl, ConnectionToken, ExtraParams);
 
-dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken)->
+dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
 
 	Participants = get_active_group_participants(To#jid.luser),
 
@@ -164,9 +167,19 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken)
 	
 
         ok;
-dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken)->
+dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
 	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
         ok.
+
+dispatch_confession_post(To, Body, ConfessionId )->
+        
+        ?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [To, Body]),
+
+        ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+        PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+        
+        send_custom_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken, [{"confession_id", ConfessionId}]),
+        ?INFO_MSG("\nThought Notification Sent", [ ]).
 
 
 send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
@@ -182,6 +195,26 @@ send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
 	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
         
 	ok.
+
+% ExtraParamList follows: [{key,val},{key,val},...]
+send_custom_post(FromString, ToString, Body, PostUrl, ConnectionToken, ExtraParamList) ->
+
+	%% Takes a list of tuples representing key,val pairs and transforms it into a post param string.
+	ExtraPostParamString = lists:flatten(string:join(lists:map(fun(El)-> {Key, Val} = El,  [Key, "=", Val]  end, ExtraParamList), "&")),
+
+	Sep = "&",
+        Post = [
+          "token=", ConnectionToken, Sep,
+          "to=", ToString, Sep,
+          "from=", FromString, Sep,
+          "body=", url_encode(binary_to_list(Body)), Sep,
+          "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))] ++ Sep ++ ExtraPostParamString,
+
+	?INFO_MSG( "\nPost associated with notification. ", [ list_to_binary(Post) ] ),
+
+        httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
+
+ok.
 
 
 get_active_group_participants(ChatId)->

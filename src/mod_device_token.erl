@@ -44,16 +44,27 @@ handle_local_iq(#jid{user = User, server = Server,
                  _To, #iq{type = set, sub_el = SubEl} = IQ) ->
 
 	?INFO_MSG("\n\nSubEl: ~p", [SubEl]),
+	?INFO_MSG("\n\nResult of get: ~p", [xml:get_subtag_cdata(SubEl, <<"token">>)]),
 
-		
-	DeviceToken = xml:get_tag_cdata(SubEl),
+	%% Devices with old app may be sending old query. Check for that.
+	{DeviceToken, DeviceType} = case xml:get_subtag_cdata(SubEl, <<"token">>) of
+		<<>> ->
+			%% Old query was sent
+			{xml:get_tag_cdata(SubEl), <<"ios">>};
+		_->
+			Token = xml:get_subtag_cdata(SubEl, <<"token">>),
+			Type = xml:get_subtag_cdata(SubEl, <<"type">>),
+			{Token, Type}
+	end,
 
+	?INFO_MSG("\n\nDevice Token: ~p. Device Type: ~p", [DeviceToken, DeviceType]),
+	
 	case token_exists(From) of 
 		false ->
-			set_device_token(From, DeviceToken),
+			set_device_token(From, {DeviceToken, DeviceType}),
 			?INFO_MSG("\n\nAdding Token to ~p. \n", [User]);
 		true ->
-			update_device_token(From, DeviceToken),
+			update_device_token(From, {DeviceToken, DeviceType}),
 			?INFO_MSG("\n\nUpdating Token to ~p. \n", [User])
 	end,
 
@@ -62,16 +73,16 @@ handle_local_iq(#jid{user = User, server = Server,
         IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, DeviceToken}]}]}.
 
 set_device_token(#jid{user = User, server = Server,
-                      resource = Resource} = From, DeviceToken) ->
+                      resource = Resource} = From, {DeviceToken, DeviceType}) ->
 	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO device_tokens VALUES ('">>,User,<<"','">>,DeviceToken,<<"')">>]),
+                                [<<"INSERT INTO device_tokens VALUES ('">>,User,<<"','">>,DeviceToken,<<"', '">>,DeviceType,<<"')">>]),
 
 ok.
 
 update_device_token(#jid{user = User, server = Server,
-                      resource = Resource} = From, DeviceToken) ->
+                      resource = Resource} = From, {DeviceToken, DeviceType}) ->
 	ejabberd_odbc:sql_query(Server,
-                                [<<"UPDATE device_tokens SET token='">>,DeviceToken,<<"' WHERE username='">>,User,<<"'">>]),
+                                [<<"UPDATE device_tokens SET token='">>,DeviceToken,<<"', type='">>, DeviceType ,<<"' WHERE username='">>,User,<<"'">>]),
 
 ok.
 
