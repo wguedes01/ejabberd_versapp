@@ -163,7 +163,14 @@ set_password_t(LServer, Username, Pass) ->
 
 add_user(LServer, Username, Pass) ->
 
-    EncryptedPassword = md5:md5_hex(Pass),
+    ?INFO_MSG("About to encrypt: ~p/~p", [Username, Pass]),
+
+    EncryptedPassword = md5:md5_hex(binary_to_list(Pass)),
+
+    ?INFO_MSG("Encrypted. ~p", [ EncryptedPassword ]),
+
+    ?INFO_MSG("\nRegistering user. Username: ~p. Unencrypted Pass: ~p. Encrypted Pass: ~p",
+	[Username, Pass, EncryptedPassword]),
 
     ejabberd_odbc:sql_query(LServer,
 			    [<<"insert into users(username, password) "
