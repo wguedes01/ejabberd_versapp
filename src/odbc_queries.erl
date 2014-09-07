@@ -165,8 +165,14 @@ add_user(LServer, Username, Pass) ->
 
     ?INFO_MSG("About to encrypt: ~p/~p", [Username, Pass]),
 
-    EncryptedPassword = md5:md5_hex(binary_to_list(Pass)),
-
+    %% Support devices in which encryption happens within device.
+    EncryptedPassword = case byte_size(Pass) of
+			32 ->
+				Pass;
+			_ ->
+			md5:md5_hex(binary_to_list(Pass))		
+		end,
+    
     ?INFO_MSG("Encrypted. ~p", [ EncryptedPassword ]),
 
     ?INFO_MSG("\nRegistering user. Username: ~p. Unencrypted Pass: ~p. Encrypted Pass: ~p",

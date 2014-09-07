@@ -57,9 +57,17 @@ store_type() -> plain.
 %% @spec (User, Server, Password) -> true | false | {error, Error}
 check_password(User, Server, PassPlainText) ->
 
-    ?INFO_MSG("User logging with: ~p/~p", [User, PassPlainText]),
+    ?INFO_MSG("User logging with: ~p/~p (~p)", [User, PassPlainText, byte_size(PassPlainText)]),
 
-    Password = list_to_binary(md5:md5_hex(PassPlainText)),
+    
+
+    Password = case length(binary_to_list(PassPlainText)) of
+		32 ->
+			PassPlainText;
+		_->
+			list_to_binary(md5:md5_hex(binary_to_list(PassPlainText)))
+		end,
+
 
     ?INFO_MSG("Encrypted: ~p", [Password]),
 
