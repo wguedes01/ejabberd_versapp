@@ -28,14 +28,23 @@ stop(Host) ->
 
 
 %%add_time_property({From, To, {xmlelement, PacketType, Attrs, SubEl}} = Packet) ->
-add_time_property({From, To, #xmlel{name = Name, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
-
+%%add_time_property({From, To, #xmlel{name = Name, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
+add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From, #jid{user = ToUser, server = _S, resource = _Res} = To, #xmlel{name = Name, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
 
 %%	?INFO_MSG("\n\n\nPACKET NO EDIT: ~p", [Packet]),
+
+	?INFO_MSG("\n\nInside add_time_property. This is the type of the packet: ~p", [xml:get_tag_attr_s(list_to_binary("type"), Xml)]),
 
 	FullXml = case Name of
 		<<"message">> ->
 			?INFO_MSG("\n\nPACKET IS:: ~p", [Packet]),
+			
+			?INFO_MSG("\n\nInside mod_add_timestamp: Xml:\n ~p", [Xml]),
+			?INFO_MSG("get_sub_tag properties:\n ~p", [xml:get_subtag(Xml, <<"properties">>)]),
+
+%			ejabberd_odbc:sql_query(Server,
+ %                               [<<"INSERT INTO message_log (to, from, timestamp, packet) VALUES
+  %                                       ('">>,ChatId,<<"', '">>,ChatType,<<"','">>, OwnerId, <<"','">>,ChatName,<<"','">>,CreatedTimestamp,<<"', '">>,Degree,<<"')">>]),
 
 			BodyEl = xml:get_subtag(Xml, <<"body">>),
 			ThreadEl = xml:get_subtag(Xml, <<"thread">>),
