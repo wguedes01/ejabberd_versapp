@@ -427,7 +427,7 @@ RosterEntries.
 
 build_notification_packet(Body) ->
     {xmlel, <<"message">>,
-     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [{<<"type">>, <<"headline">>}, {<<"id">>, randoms:get_string()}],
      [
 
 
