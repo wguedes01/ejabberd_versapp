@@ -34,6 +34,7 @@
 	 init/2,
 	 stop/1,
 	 send_notice/3,
+	 send_notice_group/3,
 	 send_post/5,
 	 dispatch_post_by_type/7,
 	 dispatch_confession_post/3,
@@ -93,10 +94,11 @@ send_notice(From, To, Packet) ->
 
 
 %% 'groupchat' messages do not activate offline_message_hook so I had to create this method hooked with 'user_send_packet'. This is a little hacky but needed to do.
-send_notice_group(From, To, Packet)->
+send_notice_group(From, To, #xmlel{name = <<"message">>, attrs = Attrs, children = Children} = Packet)->
 
     Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
+    Thread = xml:get_path_s(Packet, [{elem, list_to_binary("thread")}, cdata]),
     ConnectionToken = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
     PostUrl = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
@@ -105,11 +107,12 @@ send_notice_group(From, To, Packet)->
     %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent.
     case Type of
         <<"groupchat">> ->
-                dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, []);
+                dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]);
         _->
                 ok
     end,
-ok.
+ok;
+send_notice_group(_, _, _)-> ok.
 
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
@@ -167,7 +170,7 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken,
 
 	lists:foreach( fun(Participant)->
 		?INFO_MSG("\nSending to participant in group (offline): ~p", [Participant]),
-		send_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken)
+		send_custom_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken, ExtraParams)
 	end, FilteredParticipants),	
 	
 

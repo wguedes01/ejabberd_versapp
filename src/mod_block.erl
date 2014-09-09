@@ -34,7 +34,6 @@ start(Host, Opts) ->
 		
 	ejabberd_hooks:add(filter_packet, global, ?MODULE, cancel_blocked_packets, 10),
 
-	%%ejabberd_hooks:add(user_receive_packet, Host, ?MODULE, filter_who_packet_on_user_receive, 0),
 	ejabberd_hooks:add(user_send_packet, Host, ?MODULE, on_user_send_packet, 0),
 
 	IQDisc = gen_mod:get_opt(iqdisc, Opts, fun gen_iq_handler:check_type/1,
@@ -46,7 +45,7 @@ start(Host, Opts) ->
 stop(Host) ->
 	?INFO_MSG("mod_block has stoped.", []),
 
-	ejabberd_hooks:delete(filter_packet, global, ?MODULE, cancel_blocked_packets, 10),
+	%%ejabberd_hooks:delete(filter_packet, global, ?MODULE, cancel_blocked_packets, 10),
 	
 	%%ejabberd_hooks:delete(user_receive_packet, Host, ?MODULE, filter_who_packet_on_user_receive, 0),
 	ejabberd_hooks:delete(user_send_packet, Host, ?MODULE, on_user_send_packet, 0),
@@ -224,7 +223,7 @@ BlockedUsers.
 
 
 on_user_send_packet(#jid{user = User, server = Server,
-                      resource = Resource} = From, #jid{user = ToUser, server = ToServer, resource = _R2} = To, #xmlel{name = Name, attrs = Attrs, children = Children} = Packet) ->
+                      resource = Resource} = From, #jid{user = ToUser, server = ToServer, resource = _R2} = To, #xmlel{name = <<"message">>, attrs = Attrs, children = Children} = Packet) ->
 
 
 	%%If Sender has implicit blocked person he is sending the message to, implicit unblock that person.
@@ -251,17 +250,15 @@ on_user_send_packet(#jid{user = User, server = Server,
 %%                        []
       %%  end,
 
-Packet.
+Packet;
+on_user_send_packet(From, To, Packet)-> Packet.
 
 
 
-cancel_blocked_packets({#jid{user = FromUser, server = FromServer, resource = Res} = From, #jid{user = ToUser, server = ToServer, resource = _R2} = To, #xmlel{name = Name, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
-
-        NewPacket = case Name of
-                <<"message">> ->
+cancel_blocked_packets({#jid{user = FromUser, server = FromServer, resource = Res} = From, #jid{user = ToUser, server = ToServer, resource = _R2} = To, #xmlel{name = <<"message">>, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
 
 
-			case is_user_blocked(To, FromUser, ?BLOCK_TYPE_IMPLICIT_USER) of
+			NewPacket = case is_user_blocked(To, FromUser, ?BLOCK_TYPE_IMPLICIT_USER) of
 				true ->
 					drop;
 				false ->
@@ -277,70 +274,18 @@ cancel_blocked_packets({#jid{user = FromUser, server = FromServer, resource = Re
 
                                 		        NewBodyEl = #xmlel{name = NameBody, attrs = AttrBody, children = [{xmlcdata, <<"Message from blocked user">>}]},
 
-                                      			  {From, To, #xmlel{name = Name, attrs = Attrs, children = [NewBodyEl, ThreadEl, Properties]}};
+                                      			  {From, To, #xmlel{name = <<"message">>, attrs = Attrs, children = [NewBodyEl, ThreadEl, Properties]}};
 						false ->
 							Packet
 					end
-			end;
+				end,
 
-		%%	case is_user_blocked(To, FromUser, ?BLOCK_TYPE_EXPLICIT_USER) of
-		%%		true ->
-		%%			drop;
-		%%		false ->
-		%%			Packet
-		%%	end,
+NewPacket;
+cancel_blocked_packets(Packet)-> 
 
-		%%	case is_user_blocked(To, FromUser, ?BLOCK_TYPE_IMPLICIT_USER) of
-		%%		true ->
-		%%			drop;
-		%%		false ->
-		%%			Packet
-			
+	?INFO_MSG("Inside MOD_BLOCK. Not message packet. ~p", [Packet]),	
 
-		%%	end,
-
-
-
-		%%	?INFO_MSG("\n\n\n BLOCK PACKET: ~p", [Packet]),
-		%%	?INFO_MSG("\n I am: ~p", [To]),
-		%%	?INFO_MSG("\n Group Is: ~p", [FromUser]),
-		%%	?INFO_MSG("\n Sender is: ~p", [Res]),
-		%%	?INFO_MSG("\n Is he blocked?: ~p", [is_user_blocked_in_group(To, Res, FromUser, ?BLOCK_TYPE_USER_IN_GROUP)]),
-
-		%%	case is_user_blocked_in_group(To, Res, FromUser, ?BLOCK_TYPE_USER_IN_GROUP) of
-                  %%              true ->
-                    %%                    ?INFO_MSG("\n\n\n\nBlocked Packet: ~p", [Packet]),
-                      %%                  BodyEl = xml:get_subtag(Xml, <<"body">>),
- %%                                       ThreadEl = xml:get_subtag(Xml, <<"thread">>),
-%%                                        Properties = xml:get_subtag(Xml, <<"properties">>),
-
-  %%                                      #xmlel{name = NameBody, attrs = AttrBody, children = ChildBody} = BodyEl,
-
-%%                                        NewBodyEl = #xmlel{name = NameBody, attrs = AttrBody, children = [{xmlcdata, <<"Message from blocked user">>}]},
-  %%                                      {From, To, #xmlel{name = Name, attrs = Attrs, children = [NewBodyEl, ThreadEl, Properties]}};
-
-                                        %%drop;
-                      %%          false ->
-                    %%                    Packet
-                  %%      end;
-
-			%%Change body if user is blocked within group
-                       %% BodyEl = xml:get_subtag(Xml, <<"body">>),
-                       %% ThreadEl = xml:get_subtag(Xml, <<"thread">>),
-                       %% Properties = xml:get_subtag(Xml, <<"properties">>),
-
-
-%                        NewProp = #xmlel{name = PName, attrs = PAttrs, children = lists:append(PList, [#xmlel{name = <<"property">>, attrs = [], children = [#xmlel{ name = <<"name">>, attrs = [], children = [{xmlcdata, <<"time">>}]},  #xmlel{ name = <<"value">>, attrs = [{<<"type">>, <<"string">>}], children = [{xmlcdata, TSTerm}]}]}])},
-
-
-                        %%NewXml = #xmlel{name = Name, attrs = Attrs, children = [BodyEl, ThreadEl, NewProp]},
-
-                       %% {From, To, NewXml};
-                _ ->
-                        Packet
-        end,
-
-NewPacket.
+Packet.
 
 
 

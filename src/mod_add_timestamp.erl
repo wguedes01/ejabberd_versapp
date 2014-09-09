@@ -27,14 +27,11 @@ stop(Host) ->
 	ejabberd_hooks:delete(filter_packet, global, ?MODULE, add_time_property, 10).
 
 
-add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From, #jid{user = ToUser, server = _S, resource = _Res} = To, #xmlel{name = Name, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
-
+add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From, #jid{user = ToUser, server = _S, resource = _Res} = To, #xmlel{name = <<"message">>, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
 %%      ?INFO_MSG("\n\n\nPACKET NO EDIT: ~p", [Packet]),
 
         ?INFO_MSG("\n\nInside add_time_property. This is the type of the packet: ~p", [xml:get_tag_attr_s(list_to_binary("type"), Xml)]),
 
-        FullXml = case Name of
-                <<"message">> ->
                         ?INFO_MSG("\n\nPACKET IS:: ~p", [Packet]),
 
                         ?INFO_MSG("\n\nInside mod_add_timestamp: Xml:\n ~p", [Xml]),
@@ -66,16 +63,11 @@ add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From
 
 
 
-                        NewXml = #xmlel{name = Name, attrs = Attrs, children = [BodyEl, ThreadEl, NewProp]},
+                        NewXml = #xmlel{name = <<"message">>, attrs = Attrs, children = [BodyEl, ThreadEl, NewProp]},
 
-                        NewXml;
-                _ ->
-%%                      ?INFO_MSG("\nNot message packet: ~p", [Packet]),
-                        Xml
-        end,
-
-        NewPacket = {From, To, FullXml},
-NewPacket.
+        NewPacket = {From, To, NewXml},
+NewPacket;
+add_time_property(FullPacket)-> FullPacket.
 
 
 
