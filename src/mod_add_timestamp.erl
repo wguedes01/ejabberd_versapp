@@ -26,38 +26,39 @@ stop(Host) ->
 
 	ejabberd_hooks:delete(filter_packet, global, ?MODULE, add_time_property, 10).
 
-
+add_time_property({ _, _, #xmlel{name = <<"message">>, attrs = [{<<"type">>,<<"normal">>}], children = _} } = Packet) -> Packet;
 add_time_property({ #jid{user = FromUser, server = Server, resource = _R} = From, #jid{user = ToUser, server = _S, resource = _Res} = To, #xmlel{name = <<"message">>, attrs = Attrs, children = SubEl} = Xml} = Packet) ->
-%%      ?INFO_MSG("\n\n\nPACKET NO EDIT: ~p", [Packet]),
-
-        ?INFO_MSG("\n\nInside add_time_property. This is the type of the packet: ~p", [xml:get_tag_attr_s(list_to_binary("type"), Xml)]),
 
                         ?INFO_MSG("\n\nPACKET IS:: ~p", [Packet]),
 
-                        ?INFO_MSG("\n\nInside mod_add_timestamp: Xml:\n ~p", [Xml]),
                         ?INFO_MSG("get_sub_tag properties:\n ~p", [xml:get_subtag(Xml, <<"properties">>)]),
-
 
                         BodyEl = xml:get_subtag(Xml, <<"body">>),
                         ThreadEl = xml:get_subtag(Xml, <<"thread">>),
                         #xmlel{name = PName, attrs = PAttrs, children = PList} = xml:get_subtag(Xml, <<"properties">>),
 
-%%			{xmlel,<<"body">>,[],[{xmlcdata,Body}]}	= BodyEl,			
+			{xmlel,<<"body">>,[],[{xmlcdata,Body}]}	= BodyEl,			
 
-%%			case ToUser == FromUser of
-%%
-  %%                              false ->
-    %%    	                   ?INFO_MSG("\n\nmysql : ~p",[             ejabberd_odbc:sql_query(Server,                                         
- %%	                                               [<<"INSERT INTO messages_log (to_user, from_user, body_length) VALUES ('">>,ToUser,<<"', '">>,FromUser,<<"', 10">>])    ]);
-   %%                             true ->
-     %%                                   []
-       %%                 end,
-%%
+			case ToUser == FromUser of
+
+                                false ->
+			
+					?INFO_MSG("insert message log: ~p(~p), ~p" , [ Body, byte_size(Body),
+				
+					ejabberd_odbc:sql_query(Server,
+                                		[<<"INSERT INTO messages_log (to_user, from_user, body_length) VALUES ('">>,ToUser,<<"','">>,FromUser,<<"','">>,integer_to_list(byte_size(Body)),<<"')">>]) 
+
+					]);
+
+                                true ->
+                                        []
+                        end,
+
                         [Timestamp] = get_timestamp(),
 
                         TSTerm = list_to_binary(Timestamp),
 
-                        ?INFO_MSG("\n Timestamp is: ~p", [list_to_binary(Timestamp)]),
+                        ?INFO_MSG("\\n Timestamp is: ~p", [list_to_binary(Timestamp)]),
 
                         NewProp = #xmlel{name = PName, attrs = PAttrs, children = lists:append(PList, [#xmlel{name = <<"property">>, attrs = [], children = [#xmlel{ name = <<"name">>, attrs = [], children = [{xmlcdata, <<"time">>}]},  #xmlel{ name = <<"value">>, attrs = [{<<"type">>, <<"string">>}], children = [{xmlcdata, TSTerm}]}]}])},
 

@@ -11,8 +11,8 @@
 -vsn('').
 -define(ejabberd_debug, true).
 
--define(SERVER_IP, <<"versapp.co">>).
--define(JID_EXT, <<"@versapp.co">>).
+-define(SERVER_IP, <<"harmon.dev.versapp.co">>).
+-define(JID_EXT, <<"@harmon.dev.versapp.co">>).
 
 -behaviour(gen_mod).
 
