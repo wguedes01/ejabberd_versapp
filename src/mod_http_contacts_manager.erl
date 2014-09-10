@@ -60,16 +60,13 @@ process([<<"store">>], Request) ->
 
 	%% TODO: Select only contacts that have the app AND are not already friends with user.
 
-	%%See if contact is registered.
-%%        {_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
-  %%                              [<<"SELECT username FROM username_phone_email WHERE CONCAT(ccode,phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") OR email IN (">>,string:join(SQLFormattedContactList, ","),<<")">>]),	
+	?INFO_MSG("\n\nSQLFOrmattedContactList = ~p", [SQLFormattedContactList]),
 
-
-	{_,_, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
+	{QueryResOne,QueryResTwo, Reg} = ejabberd_odbc:sql_query(?SERVER_IP,
                               [<<"SELECT upe.username FROM username_phone_email upe WHERE (  (  CONCAT(upe.ccode, upe.phone) IN (">>,string:join(SQLFormattedContactList, ","),<<") OR email IN (">>,string:join(SQLFormattedContactList, ","),<<") ) AND upe.username NOT IN (SELECT ru.username FROM rosterusers ru WHERE ru.username=upe.username AND ru.jid=CONCAT('">>,Username,<<"', '">>,binary_to_list(?JID_EXT),<<"')))">>]),
 
 
-	?INFO_MSG("\n\n\n\n\nREG: ~p", [Reg]),
+	?INFO_MSG("\n\n\n\n\nREG: ~p. \n\nQueryResOne: ~p. \n\nQUeryResTwo: ~p", [Reg, QueryResOne, QueryResTwo]),
 
 	%%List containing information to add friends to user roster
 	FriendList1 = lists:map(fun([El])-> string:join(["('",Username,"', '",string:concat(binary_to_list(El), binary_to_list(?JID_EXT)),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
