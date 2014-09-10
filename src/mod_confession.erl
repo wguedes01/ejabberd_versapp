@@ -427,14 +427,14 @@ RosterEntries.
 
 build_notification_packet(Body) ->
     {xmlel, <<"message">>,
-     [{<<"type">>, <<"chat">>}, {<<"id">>, randoms:get_string()}],
+     [{<<"type">>, <<"headline">>}, {<<"id">>, randoms:get_string()}],
      [
 
 
                 #xmlel{name = <<"broadcast">>, attrs = [], 
 			children = [
 				#xmlel{ name = <<"type">>, attrs = [], children = [{xmlcdata, <<"confession_favorited">>}]},
-				#xmlel{ name = <<"content">>, attrs = [], children = [{xmlcdata, list_to_binary(Body)}]}
+				#xmlel{ name = <<"confession">>, attrs = [], children = [#xmlel{ name = <<"id">>, attrs = [], children = [{xmlcdata, list_to_binary(Body)}]}]}
 			]}
 
 
@@ -483,7 +483,7 @@ send_confession_favorited_push_notification(ConfessionId, ToJID)->
 		false ->
 			[];
 		true ->
-			FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+			FavoriteAlertJSON = lists:flatten(io_lib:format("~s", [ConfessionId])),
 			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
 			dispatch_confession_post(ToJID, <<"Someone favorited your thought">>, ConfessionId)
 	end,

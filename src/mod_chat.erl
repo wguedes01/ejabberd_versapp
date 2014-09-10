@@ -638,8 +638,5 @@ on_user_send_packet(#jid{user = User, server = Server,
         ?INFO_MSG("\nPacket Info:\n\n Name: ~p.\nAttrs: ~p.\nChildren: ~p.\nAll: ~p", [<<"message">>, Attrs, Children, Packet]),
 
 Packet;
-
-on_user_send_packet(From, To, Packet) ->
-[],
-ok.
-
+on_user_send_packet(_,_, Packet) ->
+	Packet.

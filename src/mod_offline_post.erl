@@ -44,6 +44,11 @@
 -define(SERVER, <<"versapp.co">>).
 -define(PARTICIPANT_ACTIVE_STATUS, <<"active">>).
 
+%% These are arguments sent to the push notification service to indicate what kind of
+%% push notification is being sent (message, confession,...)
+-define(MESSAGE_PUSH_NOTIFICATION_TYPE, <<"message">>).
+-define(CONFESSION_PUSH_NOTIFICATION_TYPE, <<"confession">>).
+
 -include("ejabberd.hrl").
 -include("jlib.hrl").
 -include("logger.hrl").
@@ -85,26 +90,29 @@ send_notice(From, To, Packet) ->
     PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
     ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p\n", [Type, Body]),
-    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}]).
+    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]).
+
 
 %% 'groupchat' messages do not activate offline_message_hook so I had to create this method hooked with 'user_send_packet'. This is a little hacky but needed to do.
-send_notice_group(From, To, Packet)->
-    
+send_notice_group(From, To, #xmlel{name = <<"message">>, attrs = Attrs, children = Children} = Packet)->
+
     Type = xml:get_tag_attr_s(list_to_binary("type"), Packet),
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
+    Thread = xml:get_path_s(Packet, [{elem, list_to_binary("thread")}, cdata]),
     ConnectionToken = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
     PostUrl = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
     ?INFO_MSG("\n\n\nSEND_NOTICE_GROUP", []),
 
-    %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent. 
+    %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent.
     case Type of
-	<<"groupchat">> ->
-		dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, []);
-	_->
-		ok
+        <<"groupchat">> ->
+                dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]);
+        _->
+                ok
     end,
-ok.
+ok;
+send_notice_group(_, _, _)-> ok.
 
 
 %%% The following url encoding code is from the yaws project and retains it's original license.
@@ -162,7 +170,7 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken,
 
 	lists:foreach( fun(Participant)->
 		?INFO_MSG("\nSending to participant in group (offline): ~p", [Participant]),
-		send_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken)
+		send_custom_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken, ExtraParams)
 	end, FilteredParticipants),	
 	
 
@@ -178,7 +186,7 @@ dispatch_confession_post(To, Body, ConfessionId )->
         ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
         PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
         
-        send_custom_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken, [{"confession_id", ConfessionId}]),
+        send_custom_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken, [{"confession_id", ConfessionId}, {"type", ?CONFESSION_PUSH_NOTIFICATION_TYPE}]),
         ?INFO_MSG("\nThought Notification Sent", [ ]).
 
 
@@ -210,10 +218,10 @@ send_custom_post(FromString, ToString, Body, PostUrl, ConnectionToken, ExtraPara
           "body=", url_encode(binary_to_list(Body)), Sep,
           "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))] ++ Sep ++ ExtraPostParamString,
 
-	?INFO_MSG( "\nPost associated with notification. ", [ list_to_binary(Post) ] ),
+	?INFO_MSG( "\nPost associated with notification. ~p", [ list_to_binary(Post) ] ),
 
         httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
-
+	?INFO_MSG("\n\nSent123", []),
 ok.
 
 
