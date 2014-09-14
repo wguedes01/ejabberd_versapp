@@ -9,13 +9,15 @@
 -include("ejabberd.hrl").
 -include("logger.hrl").
 -include("jlib.hrl").
-
+-include("custom_records.hrl").
 
 -define(NS_CONFESSION, <<"who:iq:confession">>).
--define(DEGREE_FRIEND_1, <<"1">>).
--define(DEGREE_FRIEND_2, <<"2">>).
--define(DEGREE_FRIEND_3, <<"3">>).
--define(DEGREE_GLOBAL, <<"global">>).
+-define(CONFESSIONS_TABLE, <<"confessions">>).
+-define(CONFESSIONS_TABLE_COLUMN_CONFESSION_ID, <<"confession_id">>).
+-define(CONFESSIONS_TABLE_COLUMN_JID, <<"jid">>).
+-define(CONFESSIONS_TABLE_COLUMN_BODY, <<"body">>).
+-define(CONFESSIONS_TABLE_COLUMN_IMAGE_URL, <<"image_url">>).
+-define(CONFESSIONS_TABLE_COLUMN_CREATED_TIMESTAMP, <<"created_timestamp">>).
 
 -export([start/2, stop/1]).
 -export([handle_confession_iq/3]).
@@ -25,14 +27,11 @@
 -export([create_confession/3, insert_confession_into_db/3, destroy_confession/3]).
 -export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
 
-
-%%Util
--export([get_timestamp/0]).
-
 -import(mod_offline_post, [dispatch_confession_post/3]).
 
-
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
+
+-import(custom_odbc_queries, [insert_confession/2]).
 
 start(Host, Opts) ->
 
@@ -50,13 +49,6 @@ stop(Host) ->
 				     ?NS_CONFESSION).
 
 
-
-
-
-
-
-
-
 %%Respond to SET requests.
 handle_confession_iq(#jid{user = User, server = Server,
                       resource = Resource} = From,
@@ -71,7 +63,6 @@ handle_confession_iq(#jid{user = User, server = Server,
 			?INFO_MSG("\n\nName of tag is: ~p", [Name]),
 			case Name of
 				<<"create">> ->
-					%%insert_confession_into_db(From, Tag, IQ);			
 					create_confession(From, Tag, IQ);
 				<<"destroy">> ->
 					destroy_confession(From, Tag, IQ);
@@ -88,20 +79,22 @@ IQResponse.
 create_confession(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ) ->
 
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
+%%	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
 
-	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
+%%	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
 
-	Result = string:join([ConfessionId, CreatedTimestamp], ","),
+	Body = xml:get_subtag_cdata(TagEl, <<"body">>),
+        ImageUrl = xml:get_subtag_cdata(TagEl, <<"image_url">>),
+	
+	Confession = custom_odbc_queries:insert_confession(Server, #confession{username = User, body = Body, image_url = ImageUrl}),
 
-%% SEND THIS 
-%%	ejabberd_router:route(JID, JID, {xmlel,<<"iq">>,[{<<"id">>,<<"confession_set">>},{<<"type">>,<<"result">>}],[{xmlel,"value",[],[{xmlcdata,<<"BOOOOOM">>}]}]}),
+%%	Result = string:join([ConfessionId, CreatedTimestamp], ","),
 
+	?INFO_MSG("\n\nConfession: ~p", [Confession]),
 
-	?INFO_MSG("THIS IS THE PACKET IM SENDING: ~p",[jlib:iq_to_xml(IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary("BOOOOOM")}]}]})]),
+	Result = string:join([binary_to_list(Confession#confession.id), binary_to_list(Confession#confession.created_timestamp)], ","),
 
 	IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
-
 
 
 %%Els is formatted as [{xmlcdata,<<" ">>},{xmlel,<<"body">>,[],[{xmlcdata,<<"Hello, World!">>}]},{xmlcdata,<<" ">>},{xmlel,<<"image_url">>,[],[]},{xmlcdata,<<" ">>}]
@@ -111,32 +104,25 @@ insert_confession_into_db(#jid{user = User, server = Server,
 	BodyString = xml:get_subtag_cdata(TagEl, <<"body">>),
 	ImageUrlString = xml:get_subtag_cdata(TagEl, <<"image_url">>),
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-	
-	[CreatedTimestamp] = get_timestamp(),
+
+	Res=	ejabberd_odbc:sql_query(Server,
+                                [<<"INSERT INTO ">>,?CONFESSIONS_TABLE,<<" (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
+
+	?INFO_MSG("\n\nBothQueries Together: ~p", [ Res ]),
 
         ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confessions (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
+                                [<<"INSERT INTO ">>,?CONFESSIONS_TABLE,<<" (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
 
        %% get id of confession just inserted.
-        {_, _, [[ConfessionIdTerm]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confessions WHERE jid='">>,User,<<"' AND created_timestamp='">>,CreatedTimestamp,<<"' ">>]),
+        {_, _, [[ConfessionIdTerm]]} = ejabberd_odbc:sql_query(Server, [<<"SELECT LAST_INSERT_ID()">>]),
 
-	?INFO_MSG("ConfIdTerm, CreatedTimestamp: ~p, ~p", [ConfessionIdTerm, CreatedTimestamp]),
+	?INFO_MSG("Conf term: ~p", [ConfessionIdTerm] ),
 	
-	EscapedId = ejabberd_odbc:decode_term(ConfessionIdTerm),
+	{_,_,[[CreatedTimestamp]]} = ejabberd_odbc:sql_query(Server, [<<"SELECT UNIX_TIMESTAMP(created_timestamp) from ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>, binary_to_list(ConfessionIdTerm) ,<<"'">>]),
 
-	?INFO_MSG("ConfIdTerm ESCAPED: ~p", [EscapedId]),
-	?INFO_MSG("io_lib:format(DecodedId): ~p", [io_lib:format("~p", [EscapedId])]),
+	?INFO_MSG("ConfIdTerm: ~p, CreatedTimestamp: ~p", [ConfessionIdTerm, CreatedTimestamp]),
 
-
-
-	ConfessionIdString = ejabberd_odbc:decode_term(ConfessionIdTerm),
-
-
-	[Id] = io_lib:format("~p", [ConfessionIdString]),
-	Result = string:join([Id, CreatedTimestamp], ","),
-
-	Confession = {Id, JIDString, BodyString, ImageUrlString, CreatedTimestamp, 0, 0},
+	Confession = {binary_to_list(ConfessionIdTerm), JIDString, BodyString, ImageUrlString, binary_to_list(CreatedTimestamp), 0, 0},
 	
 Confession.
 %%IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
@@ -150,7 +136,7 @@ destroy_confession(#jid{user = User, server = Server,
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confessions WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"'">>]),
+                                [<<"DELETE FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"' AND jid='">>,User,<<"'">>]),
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Destroyed">>}]}]}.
 
@@ -163,7 +149,7 @@ toggle_favorite(#jid{user = User, server = Server,
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
         {_,_,Result} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confession_favorites WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"' ">>]),
+                                [<<"SELECT ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<" FROM confession_favorites WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"' AND jid='">>,User,<<"' ">>]),
 
         case (length(Result) > 0) of
                 true ->
@@ -176,7 +162,7 @@ toggle_favorite(#jid{user = User, server = Server,
 
 			%% Get username of person who created confession.
 			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT jid FROM confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
+                                [<<"SELECT jid FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
 
 			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
 
@@ -184,7 +170,7 @@ toggle_favorite(#jid{user = User, server = Server,
 
 			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
 
-        		send_confession_favorited_notification(ConfessionId, CreatorJID)
+        		send_confession_favorited_push_notification(ConfessionId, CreatorJID)
 	end,
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
@@ -195,7 +181,7 @@ add_favorite(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),	
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confession_favorites (jid, confession_id) VALUES ('">>,User,<<"','">>,ConfessionId,<<"')">>]),
+                                [<<"INSERT INTO confession_favorites (jid, ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<") VALUES ('">>,User,<<"','">>,ConfessionId,<<"')">>]),
 
 ok.
 
@@ -206,7 +192,7 @@ delete_favorite(#jid{user = User, server = Server,
 	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
 
 	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confession_favorites WHERE jid='">>,User,<<"' AND confession_id='">>,ConfessionId,<<"'">>]),
+                                [<<"DELETE FROM confession_favorites WHERE jid='">>,User,<<"' AND ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
 
 ok.
 
@@ -225,20 +211,6 @@ build_notification_packet(Body) ->
 
 
                 ]}.
-
-
-send_confession_favorited_notification(ConfessionId, ToJID)->
-	
-	Server = ToJID#jid.lserver,
-
-%	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
-
-%        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
-
-
-	send_confession_favorited_push_notification(ConfessionId, ToJID),
-
-ok.
 
 send_confession_favorited_push_notification(ConfessionId, ToJID)->
 
@@ -291,15 +263,3 @@ send_confession_favorited_push_notification(ConfessionId, ToJID)->
 
 ok.
 
-get_timestamp()->
-{Mega, Secs, _} = now(),
-        CurrentTimestamp = io_lib:format("~p", [Mega*1000000 + Secs]),
-CurrentTimestamp.
-
-%%%%% XML Handling ============
-
-get_attr(Attr, XData) ->
-    case lists:keysearch(Attr, 1, XData) of
-        {Key, {_, Value}} -> Value;
-        false -> false
-    end.
