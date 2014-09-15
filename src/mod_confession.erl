@@ -30,7 +30,11 @@
 
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
 
--import(custom_odbc_queries, [insert_confession/2]).
+-import(custom_odbc_queries, [
+			insert_confession/2,
+			insert_confession_favorite/3,
+			remove_confession_favorite/3,
+			is_confession_favorited/3]).
 
 start(Host, Opts) ->
 
@@ -87,7 +91,6 @@ create_confession(#jid{user = User, server = Server,
 
 	Result = string:join([binary_to_list(Confession#confession.id), binary_to_list(Confession#confession.created_timestamp)], ","),
 
-
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
 
 
@@ -107,34 +110,29 @@ IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession De
 toggle_favorite(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ)->
 
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
-        {_,_,Result} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<" FROM confession_favorites WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"' AND jid='">>,User,<<"' ">>]),
-
-        case (length(Result) > 0) of
-                true ->
-			?INFO_MSG("REMOVE favorite!!!", []),
-                        delete_favorite(JID, ConfessionId);
-                false ->
-			?INFO_MSG("Adding favorite!!!", []),
-                        add_favorite(JID, ConfessionId),
-                      %%  send_confession_alert(Server, ConfessionId)
-
-			%% Get username of person who created confession.
-			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT jid FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
-
-			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
-
-			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
-
-			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
-
-        		send_confession_favorited_push_notification(ConfessionId, CreatorJID)
+	case custom_odbc_queries:is_confession_favorited(Server, User, ConfessionId) of
+		true ->
+			custom_odbc_queries:remove_confession_favorite(Server, User, ConfessionId);
+		false ->
+			custom_odbc_queries:insert_confession_favorite(Server, User, ConfessionId)
 	end,
+
+%%			%% Get username of person who created confession.
+%%			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
+  %%                              [<<"SELECT jid FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
+%%
+%%			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
+%%
+%%			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
+
+%%			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
+
+ %%       		send_confession_favorited_push_notification(ConfessionId, CreatorJID)
+%%	end,
+
+
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
 
