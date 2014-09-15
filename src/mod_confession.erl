@@ -24,7 +24,7 @@
 %%Methods to interact with database
 -export([destroy_confession/3]).
 -export([create_confession/3, destroy_confession/3]).
--export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
+-export([toggle_favorite/3]).
 
 -import(mod_offline_post, [dispatch_confession_post/3]).
 
@@ -137,28 +137,6 @@ toggle_favorite(#jid{user = User, server = Server,
 
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
-
-
-add_favorite(#jid{user = User, server = Server,
-                      resource = Resource} = JID, ConfessionId) ->
-
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),	
-
-	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confession_favorites (jid, ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<") VALUES ('">>,User,<<"','">>,ConfessionId,<<"')">>]),
-
-ok.
-
-
-delete_favorite(#jid{user = User, server = Server,
-                      resource = Resource} = JID, ConfessionId) ->
-
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
-	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confession_favorites WHERE jid='">>,User,<<"' AND ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
-
-ok.
 
 
 build_notification_packet(Body) ->
