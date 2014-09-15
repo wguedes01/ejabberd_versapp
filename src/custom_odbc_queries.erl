@@ -22,7 +22,7 @@
 
 %% Create Confession
 %% Return: confession_id.
--type insert_confession_result() :: #confession{} | error.
+-type insert_confession_result() :: #confession{} | {error, _}.
 
 -spec insert_confession(binary(), #confession{}) -> insert_confession_result().
 

@@ -11,7 +11,6 @@
 -include("jlib.hrl").
 -include("custom_records.hrl").
 
--define(NS_CONFESSION, <<"who:iq:confession">>).
 -define(CONFESSIONS_TABLE, <<"confessions">>).
 -define(CONFESSIONS_TABLE_COLUMN_CONFESSION_ID, <<"confession_id">>).
 -define(CONFESSIONS_TABLE_COLUMN_JID, <<"jid">>).
@@ -24,7 +23,7 @@
 
 %%Methods to interact with database
 -export([destroy_confession/3]).
--export([create_confession/3, insert_confession_into_db/3, destroy_confession/3]).
+-export([create_confession/3, destroy_confession/3]).
 -export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
 
 -import(mod_offline_post, [dispatch_confession_post/3]).
@@ -79,53 +78,17 @@ IQResponse.
 create_confession(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ) ->
 
-%%	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
-%%	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
-
 	Body = xml:get_subtag_cdata(TagEl, <<"body">>),
         ImageUrl = xml:get_subtag_cdata(TagEl, <<"image_url">>),
 	
 	Confession = custom_odbc_queries:insert_confession(Server, #confession{username = User, body = Body, image_url = ImageUrl}),
 
-%%	Result = string:join([ConfessionId, CreatedTimestamp], ","),
-
 	?INFO_MSG("\n\nConfession: ~p", [Confession]),
 
 	Result = string:join([binary_to_list(Confession#confession.id), binary_to_list(Confession#confession.created_timestamp)], ","),
 
-	IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
 
-
-%%Els is formatted as [{xmlcdata,<<" ">>},{xmlel,<<"body">>,[],[{xmlcdata,<<"Hello, World!">>}]},{xmlcdata,<<" ">>},{xmlel,<<"image_url">>,[],[]},{xmlcdata,<<" ">>}]
-insert_confession_into_db(#jid{user = User, server = Server,
-                      resource = Resource}, TagEl,IQ) ->
-
-	BodyString = xml:get_subtag_cdata(TagEl, <<"body">>),
-	ImageUrlString = xml:get_subtag_cdata(TagEl, <<"image_url">>),
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
-	Res=	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO ">>,?CONFESSIONS_TABLE,<<" (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
-
-	?INFO_MSG("\n\nBothQueries Together: ~p", [ Res ]),
-
-        ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO ">>,?CONFESSIONS_TABLE,<<" (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
-
-       %% get id of confession just inserted.
-        {_, _, [[ConfessionIdTerm]]} = ejabberd_odbc:sql_query(Server, [<<"SELECT LAST_INSERT_ID()">>]),
-
-	?INFO_MSG("Conf term: ~p", [ConfessionIdTerm] ),
-	
-	{_,_,[[CreatedTimestamp]]} = ejabberd_odbc:sql_query(Server, [<<"SELECT UNIX_TIMESTAMP(created_timestamp) from ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>, binary_to_list(ConfessionIdTerm) ,<<"'">>]),
-
-	?INFO_MSG("ConfIdTerm: ~p, CreatedTimestamp: ~p", [ConfessionIdTerm, CreatedTimestamp]),
-
-	Confession = {binary_to_list(ConfessionIdTerm), JIDString, BodyString, ImageUrlString, binary_to_list(CreatedTimestamp), 0, 0},
-	
-Confession.
-%%IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
+IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
 
 
 destroy_confession(#jid{user = User, server = Server,
