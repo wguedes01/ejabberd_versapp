@@ -6,7 +6,7 @@
 -include("logger.hrl").
 -include("custom_records.hrl").
 
--export([insert_confession/2]).
+-export([insert_confession/2, get_confession/2]).
 -export([insert_confession_favorite/3, remove_confession_favorite/3, is_confession_favorited/3]).
 
 %%%------------------------
@@ -88,6 +88,51 @@ insert_confession(Server, #confession{username=Username, body=Body, image_url=Im
 			?INFO_MSG("An error occurred inserting a confession on db: ~p", [Res]),
 			error
 	end.
+
+
+
+
+-spec get_confession(binary(), binary()) -> 'undefined'| #confession{} | error.
+
+get_confession(Server, ConfessionId) ->
+
+	Res = ejabberd_odbc:sql_query(Server,
+                                [
+                                        <<"SELECT ">>,
+					?CONFESSIONS_TABLE_COLUMN_USERNAME, <<", ">>,
+					?CONFESSIONS_TABLE_COLUMN_BODY, <<", ">>,
+					?CONFESSIONS_TABLE_COLUMN_IMAGE_URL, <<", ">>,
+					<<"UNIX_TIMESTAMP(">>, ?CONFESSIONS_TABLE_COLUMN_CREATED_TIMESTAMP, <<") AS ">>, ?CONFESSIONS_TABLE_COLUMN_CREATED_TIMESTAMP, <<" ">>,
+
+					<<"FROM ">>,
+                                        ?CONFESSIONS_TABLE,<<" ">>,
+
+                                        <<"WHERE ">>,
+					?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>
+                                ]),
+
+        case Res of
+                {selected, 
+			[
+				?CONFESSIONS_TABLE_COLUMN_USERNAME,
+                                ?CONFESSIONS_TABLE_COLUMN_BODY,
+                                ?CONFESSIONS_TABLE_COLUMN_IMAGE_URL,
+                                ?CONFESSIONS_TABLE_COLUMN_CREATED_TIMESTAMP
+			], Result} ->
+				[[Username, Body, ImageUrl, CreatedTimestamp]] = Result,
+                        	#confession{ 
+					id = ConfessionId,
+					username = Username,
+					body = Body,
+					image_url = ImageUrl,
+					created_timestamp = CreatedTimestamp
+				};
+                {selected, _, []} ->
+			'undefined';
+		_->
+                        ?INFO_MSG("Unable to get confession: ~p", [Res]),
+                        error
+        end.
 
 
 insert_confession_favorite(Server, Username, ConfessionId)->

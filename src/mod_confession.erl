@@ -32,6 +32,7 @@
 
 -import(custom_odbc_queries, [
 			insert_confession/2,
+			get_confession/2,
 			insert_confession_favorite/3,
 			remove_confession_favorite/3,
 			is_confession_favorited/3]).
@@ -111,6 +112,10 @@ toggle_favorite(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ)->
 
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
+
+	Confession = custom_odbc_queries:get_confession(Server, ConfessionId),
+
+	?INFO_MSG("\n\nConfession record: ~p", [Confession]),
 
 	case custom_odbc_queries:is_confession_favorited(Server, User, ConfessionId) of
 		true ->
