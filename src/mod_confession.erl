@@ -33,6 +33,7 @@
 -import(custom_odbc_queries, [
 			insert_confession/2,
 			get_confession/2,
+			remove_confession/3,
 			insert_confession_favorite/3,
 			remove_confession_favorite/3,
 			is_confession_favorited/3]).
@@ -98,12 +99,9 @@ IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary
 destroy_confession(#jid{user = User, server = Server,
                       resource = Resource}, TagEl,IQ) ->
 
-	MyJIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
-	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"' AND jid='">>,User,<<"'">>]),
+	custom_odbc_queries:remove_confession(Server, User, ConfessionId),
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Destroyed">>}]}]}.
 

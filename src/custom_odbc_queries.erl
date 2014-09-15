@@ -6,7 +6,7 @@
 -include("logger.hrl").
 -include("custom_records.hrl").
 
--export([insert_confession/2, get_confession/2]).
+-export([insert_confession/2, get_confession/2, remove_confession/3]).
 -export([insert_confession_favorite/3, remove_confession_favorite/3, is_confession_favorited/3]).
 
 %%%------------------------
@@ -89,6 +89,29 @@ insert_confession(Server, #confession{username=Username, body=Body, image_url=Im
 			error
 	end.
 
+
+remove_confession(Server, Username, ConfessionId) ->
+
+	%% I want to pass the Username here even though it's not necessary so
+	%% we can ensure the user requesting the deletion is the user who owns the confession.
+
+	Res = ejabberd_odbc:sql_query(Server,
+                                [
+                                        <<"DELETE FROM ">>,
+                                        ?CONFESSIONS_TABLE,<<" ">>,
+                                        <<"WHERE ">>,
+                                        ?CONFESSIONS_TABLE_COLUMN_USERNAME, <<"='">>,Username,<<"' ">>,
+                                        <<"AND ">>,
+                                        ?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>
+                                ] ),
+
+        case Res of
+                {updated, 1} ->
+                        ok;
+                _->
+                        ?INFO_MSG("Unable to delete confession: ~p", Res),
+                        error
+        end.
 
 
 
