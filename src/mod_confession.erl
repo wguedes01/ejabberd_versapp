@@ -11,13 +11,6 @@
 -include("jlib.hrl").
 -include("custom_records.hrl").
 
--define(CONFESSIONS_TABLE, <<"confessions">>).
--define(CONFESSIONS_TABLE_COLUMN_CONFESSION_ID, <<"confession_id">>).
--define(CONFESSIONS_TABLE_COLUMN_JID, <<"jid">>).
--define(CONFESSIONS_TABLE_COLUMN_BODY, <<"body">>).
--define(CONFESSIONS_TABLE_COLUMN_IMAGE_URL, <<"image_url">>).
--define(CONFESSIONS_TABLE_COLUMN_CREATED_TIMESTAMP, <<"created_timestamp">>).
-
 -export([start/2, stop/1]).
 -export([handle_confession_iq/3]).
 

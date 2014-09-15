@@ -26,7 +26,10 @@
 -define(CONFESSION_FAVORITES_TABLE_COLUMN_USERNAME, <<"jid">>).
 -define(CONFESSION_FAVORITES_TABLE_COLUMN_CONFESSION_ID, <<"confession_id">>).
 
-
+%% Table: last_push_notifications
+-define(LAST_PUSH_NOTIFS_TABLE, <<"last_push_notifications">>).
+-define(LAST_PUSH_NOTIFS_TABLE_COLUMN_USERNAME, <<"username">>).
+-define(LAST_PUSH_NOTIFS_TABLE_COLUMN_TIMESTAMP, <<"last_push_timestamp">>).
 
 %%%------------------------
 %%% Confession Queries
@@ -158,6 +161,10 @@ get_confession(Server, ConfessionId) ->
         end.
 
 
+%%%------------------------
+%%% Confession Favorite Queries
+%%%------------------------
+
 insert_confession_favorite(Server, Username, ConfessionId)->
 	
 	Res = ejabberd_odbc:sql_query(Server, 
@@ -216,3 +223,9 @@ is_confession_favorited(Server, Username, ConfessionId)->
 			?INFO_MSG("Unable to check if confession favorite exists: ~p", [Res]),
 			error
 	end.
+
+%%%------------------------
+%%% Push Notification Queries
+%%%------------------------
+
+
