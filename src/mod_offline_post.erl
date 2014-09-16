@@ -35,10 +35,13 @@
 	 stop/1,
 	 send_notice/3,
 	 send_notice_group/3,
-	 send_post/5,
-	 dispatch_post_by_type/7,
-	 dispatch_confession_post/3,
+	 dispatch_post_by_type/6,
+	 dispatch_confession_post/4,
 	 get_active_group_participants/1]).
+
+-import(custom_odbc_queries, [
+		get_device_info/2
+	]).
 
 -define(PROCNAME, ?MODULE).
 -define(SERVER, <<"versapp.co">>).
@@ -53,16 +56,12 @@
 -include("jlib.hrl").
 -include("logger.hrl").
 
--import(mod_device_token, [get_token/1]).
-
 start(Host, Opts) ->
     ?INFO_MSG("Starting mod_offline_post with Opts: ~p", [Opts]),
     AuthToken = gen_mod:get_module_opt(Host, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("default")),
-    PostUrl = gen_mod:get_module_opt(Host, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("default")),
-    ?INFO_MSG("\n\nAuthToken: ~p - PostUrl: ~p\n", [AuthToken, PostUrl]),
+
     register(gen_mod:get_module_proc(Host, ?PROCNAME),
 	     proc_lib:spawn(?MODULE, init, [Host, Opts])),
-    ?INFO_MSG("REGISTERED", [] ),
     ok.
 
 init(Host, _Opts) ->
@@ -87,10 +86,9 @@ send_notice(From, To, Packet) ->
     Thread = xml:get_path_s(Packet, [{elem, list_to_binary("thread")}, cdata]),
 
     ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-    PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
     ?INFO_MSG("DISPATCH_POST_BY_TYPE:\nType: ~p - Body: ~p\n", [Type, Body]),
-    dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]).
+    dispatch_post_by_type(Type, From, To, Body, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]).
 
 
 %% 'groupchat' messages do not activate offline_message_hook so I had to create this method hooked with 'user_send_packet'. This is a little hacky but needed to do.
@@ -100,14 +98,13 @@ send_notice_group(From, To, #xmlel{name = <<"message">>, attrs = Attrs, children
     Body = xml:get_path_s(Packet, [{elem, list_to_binary("body")}, cdata]),
     Thread = xml:get_path_s(Packet, [{elem, list_to_binary("thread")}, cdata]),
     ConnectionToken = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-    PostUrl = gen_mod:get_module_opt(From#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
 
     ?INFO_MSG("\n\n\nSEND_NOTICE_GROUP", []),
 
     %% This check is a little redundant but needs to be here otherwise the hook will activate twice when 'chat' messages are sent.
     case Type of
         <<"groupchat">> ->
-                dispatch_post_by_type(Type, From, To, Body, PostUrl, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]);
+                dispatch_post_by_type(Type, From, To, Body, ConnectionToken, [{"thread", Thread}, {"push_type", ?MESSAGE_PUSH_NOTIFICATION_TYPE}]);
         _->
                 ok
     end,
@@ -157,10 +154,10 @@ old_integer_to_hex(I) when I >= 16 ->
     N = trunc(I/16),
     old_integer_to_hex(N) ++ old_integer_to_hex(I rem 16).
 
-dispatch_post_by_type(<<"chat">>, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
-	send_custom_post(From#jid.luser, To#jid.luser, Body, PostUrl, ConnectionToken, ExtraParams);
+dispatch_post_by_type(<<"chat">>, From, To, Body, ConnectionToken, ExtraParams)->
+	send_custom_post(From#jid.lserver, From#jid.luser, To#jid.luser, Body, ConnectionToken, ExtraParams);
 
-dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
+dispatch_post_by_type(<<"groupchat">>, From, To, Body, ConnectionToken, ExtraParams)->
 
 	Participants = get_active_group_participants(To#jid.luser),
 
@@ -170,44 +167,43 @@ dispatch_post_by_type(<<"groupchat">>, From, To, Body, PostUrl, ConnectionToken,
 
 	lists:foreach( fun(Participant)->
 		?INFO_MSG("\nSending to participant in group (offline): ~p", [Participant]),
-		send_custom_post(From#jid.luser, Participant, Body, PostUrl, ConnectionToken, ExtraParams)
+		send_custom_post(From#jid.lserver, From#jid.luser, Participant, Body, ConnectionToken, ExtraParams)
 	end, FilteredParticipants),	
 	
 
         ok;
-dispatch_post_by_type( Type, From, To, Body, PostUrl, ConnectionToken, ExtraParams)->
+dispatch_post_by_type( Type, From, To, Body, ConnectionToken, ExtraParams)->
 	?INFO_MSG("I don't know how to dispatch this type of message: ~p", [Type]),
         ok.
 
-dispatch_confession_post(To, Body, ConfessionId )->
+dispatch_confession_post(Server, ToUsername, Body, ConfessionId )->
         
-        ?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [To, Body]),
+        ?INFO_MSG("\nSending THOUGHT notification to ~p. Body: ~p", [ToUsername, Body]),
 
-        ConnectionToken = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-        PostUrl = gen_mod:get_module_opt(To#jid.lserver, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
-        
-        send_custom_post(<<"Versapp.Thoughts">>, To#jid.luser, Body, PostUrl, ConnectionToken, [{"confession_id", ConfessionId}, {"type", ?CONFESSION_PUSH_NOTIFICATION_TYPE}]),
+        ConnectionToken = gen_mod:get_module_opt(Server, ?MODULE, auth_token, fun(S) -> iolist_to_binary(S) end, list_to_binary("")),
+ 
+        send_custom_post(Server, <<"Versapp.Thoughts">>, ToUsername, Body, ConnectionToken, [{"confession_id", ConfessionId}, {"type", ?CONFESSION_PUSH_NOTIFICATION_TYPE}]),
         ?INFO_MSG("\nThought Notification Sent", [ ]).
 
 
-send_post(FromString, ToString, Body, PostUrl, ConnectionToken)->
-	?INFO_MSG("Sending offline post to: ~p. JID: ~p, ConnectionToken: ~p, AccessToken: ~p, PostUrl: ~p, Body: ~p, From: ~p", [ToString, jlib:make_jid(ToString, ?SERVER, <<"">>), ConnectionToken, get_token(jlib:make_jid(ToString, ?SERVER, <<"">>)), PostUrl, Body, FromString]),
-	Sep = "&",
-        Post = [
-          "token=", ConnectionToken, Sep,
-          "to=", ToString, Sep,
-          "from=", FromString, Sep,
-          "body=", url_encode(binary_to_list(Body)), Sep,
-          "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))],
-        
-	httpc:request(post, {binary_to_list(PostUrl), [], "application/x-www-form-urlencoded", list_to_binary(Post)}, [], []),
-        
-	ok.
-
 % ExtraParamList follows: [{key,val},{key,val},...]
-send_custom_post(FromString, ToString, Body, PostUrl, ConnectionToken, ExtraParamList) ->
 
-	%% Takes a list of tuples representing key,val pairs and transforms it into a post param string.
+
+send_custom_post(Server, FromString, ToString, Body, ConnectionToken, ExtraParamList) ->
+
+	{DeviceToken, DeviceType} = custom_odbc_queries:get_device_info(Server, ToString),
+
+	%% Based on device type, proxy to correct url.
+	PostUrl = case DeviceType of
+		<<"android">> ->
+			gen_mod:get_module_opt(Server, ?MODULE, android_post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary(""));
+		<<"ios">> ->
+			gen_mod:get_module_opt(Server, ?MODULE, post_url, fun(S) -> iolist_to_binary(S) end, list_to_binary(""))
+	end,
+
+	?INFO_MSG("Dispatching post for user ~p to URL: ~p", [ToString, PostUrl]),
+
+	%% Takes a list of tuples representing key,val pairs and transforms it into a post param string
 	ExtraPostParamString = lists:flatten(string:join(lists:map(fun(El)-> {Key, Val} = El,  [Key, "=", Val]  end, ExtraParamList), "&")),
 
 	Sep = "&",
@@ -216,7 +212,7 @@ send_custom_post(FromString, ToString, Body, PostUrl, ConnectionToken, ExtraPara
           "to=", ToString, Sep,
           "from=", FromString, Sep,
           "body=", url_encode(binary_to_list(Body)), Sep,
-          "access_token=", get_token(jlib:make_jid(ToString, ?SERVER, <<"">>))] ++ Sep ++ ExtraPostParamString,
+          "access_token=", DeviceToken] ++ Sep ++ ExtraPostParamString,
 
 	?INFO_MSG( "\nPost associated with notification. ~p", [ list_to_binary(Post) ] ),
 

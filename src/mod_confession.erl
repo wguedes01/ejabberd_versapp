@@ -9,30 +9,31 @@
 -include("ejabberd.hrl").
 -include("logger.hrl").
 -include("jlib.hrl").
-
-
--define(NS_CONFESSION, <<"who:iq:confession">>).
--define(DEGREE_FRIEND_1, <<"1">>).
--define(DEGREE_FRIEND_2, <<"2">>).
--define(DEGREE_FRIEND_3, <<"3">>).
--define(DEGREE_GLOBAL, <<"global">>).
+-include("custom_records.hrl").
 
 -export([start/2, stop/1]).
 -export([handle_confession_iq/3]).
 
 %%Methods to interact with database
 -export([destroy_confession/3]).
--export([create_confession/3, insert_confession_into_db/3, destroy_confession/3]).
--export([toggle_favorite/3, add_favorite/2, delete_favorite/2]).
+-export([create_confession/3, destroy_confession/3]).
+-export([toggle_favorite/3]).
 
-
-%%Util
--export([get_timestamp/0]).
-
--import(mod_offline_post, [dispatch_confession_post/3]).
-
+-import(mod_offline_post, [dispatch_confession_post/4]).
 
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
+
+-import(custom_odbc_queries, [
+			insert_confession/2,
+			get_confession/2,
+			remove_confession/3,
+			insert_confession_favorite/3,
+			remove_confession_favorite/3,
+			is_confession_favorited/3,
+			get_seconds_since_last_push_notification/2,
+			insert_last_push_notification_timestamp/2,
+			update_last_push_notification_timestamp/2
+			]).
 
 start(Host, Opts) ->
 
@@ -50,13 +51,6 @@ stop(Host) ->
 				     ?NS_CONFESSION).
 
 
-
-
-
-
-
-
-
 %%Respond to SET requests.
 handle_confession_iq(#jid{user = User, server = Server,
                       resource = Resource} = From,
@@ -71,7 +65,6 @@ handle_confession_iq(#jid{user = User, server = Server,
 			?INFO_MSG("\n\nName of tag is: ~p", [Name]),
 			case Name of
 				<<"create">> ->
-					%%insert_confession_into_db(From, Tag, IQ);			
 					create_confession(From, Tag, IQ);
 				<<"destroy">> ->
 					destroy_confession(From, Tag, IQ);
@@ -88,69 +81,24 @@ IQResponse.
 create_confession(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ) ->
 
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
-	{ConfessionId, Username, Body, ImageUrl, CreatedTimestamp, _, _} = insert_confession_into_db(JID, TagEl, IQ),
-
-	Result = string:join([ConfessionId, CreatedTimestamp], ","),
-
-%% SEND THIS 
-%%	ejabberd_router:route(JID, JID, {xmlel,<<"iq">>,[{<<"id">>,<<"confession_set">>},{<<"type">>,<<"result">>}],[{xmlel,"value",[],[{xmlcdata,<<"BOOOOOM">>}]}]}),
-
-
-	?INFO_MSG("THIS IS THE PACKET IM SENDING: ~p",[jlib:iq_to_xml(IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary("BOOOOOM")}]}]})]),
-
-	IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
-
-
-
-%%Els is formatted as [{xmlcdata,<<" ">>},{xmlel,<<"body">>,[],[{xmlcdata,<<"Hello, World!">>}]},{xmlcdata,<<" ">>},{xmlel,<<"image_url">>,[],[]},{xmlcdata,<<" ">>}]
-insert_confession_into_db(#jid{user = User, server = Server,
-                      resource = Resource}, TagEl,IQ) ->
-
-	BodyString = xml:get_subtag_cdata(TagEl, <<"body">>),
-	ImageUrlString = xml:get_subtag_cdata(TagEl, <<"image_url">>),
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
+	Body = xml:get_subtag_cdata(TagEl, <<"body">>),
+        ImageUrl = xml:get_subtag_cdata(TagEl, <<"image_url">>),
 	
-	[CreatedTimestamp] = get_timestamp(),
+	Confession = custom_odbc_queries:insert_confession(Server, #confession{username = User, body = Body, image_url = ImageUrl}),
 
-        ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confessions (jid, body, image_url) VALUES ('">>,User,<<"','">>,BodyString,<<"', '">>,ImageUrlString,<<"')">>]),
+	?INFO_MSG("\n\nConfession: ~p", [Confession]),
 
-       %% get id of confession just inserted.
-        {_, _, [[ConfessionIdTerm]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confessions WHERE jid='">>,User,<<"' AND created_timestamp='">>,CreatedTimestamp,<<"' ">>]),
+	Result = string:join([binary_to_list(Confession#confession.id), binary_to_list(Confession#confession.created_timestamp)], ","),
 
-	?INFO_MSG("ConfIdTerm, CreatedTimestamp: ~p, ~p", [ConfessionIdTerm, CreatedTimestamp]),
-	
-	EscapedId = ejabberd_odbc:decode_term(ConfessionIdTerm),
-
-	?INFO_MSG("ConfIdTerm ESCAPED: ~p", [EscapedId]),
-	?INFO_MSG("io_lib:format(DecodedId): ~p", [io_lib:format("~p", [EscapedId])]),
-
-
-
-	ConfessionIdString = ejabberd_odbc:decode_term(ConfessionIdTerm),
-
-
-	[Id] = io_lib:format("~p", [ConfessionIdString]),
-	Result = string:join([Id, CreatedTimestamp], ","),
-
-	Confession = {Id, JIDString, BodyString, ImageUrlString, CreatedTimestamp, 0, 0},
-	
-Confession.
-%%IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
+IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, iolist_to_binary(Result)}]}]}.
 
 
 destroy_confession(#jid{user = User, server = Server,
                       resource = Resource}, TagEl,IQ) ->
 
-	MyJIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
-	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confessions WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"'">>]),
+	custom_odbc_queries:remove_confession(Server, User, ConfessionId),
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Destroyed">>}]}]}.
 
@@ -158,57 +106,18 @@ IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession De
 toggle_favorite(#jid{user = User, server = Server,
                       resource = Resource} = JID, TagEl, IQ)->
 
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
-        {_,_,Result} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT confession_id FROM confession_favorites WHERE confession_id='">>,ConfessionId,<<"' AND jid='">>,User,<<"' ">>]),
+	case custom_odbc_queries:is_confession_favorited(Server, User, ConfessionId) of
+		true ->
+			custom_odbc_queries:remove_confession_favorite(Server, User, ConfessionId);
+		false ->
+			custom_odbc_queries:insert_confession_favorite(Server, User, ConfessionId),
 
-        case (length(Result) > 0) of
-                true ->
-			?INFO_MSG("REMOVE favorite!!!", []),
-                        delete_favorite(JID, ConfessionId);
-                false ->
-			?INFO_MSG("Adding favorite!!!", []),
-                        add_favorite(JID, ConfessionId),
-                      %%  send_confession_alert(Server, ConfessionId)
-
-			%% Get username of person who created confession.
-			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
-                                [<<"SELECT jid FROM confessions WHERE confession_id='">>,ConfessionId,<<"'">>]),
-
-			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
-
-			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
-
-			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
-
-        		send_confession_favorited_notification(ConfessionId, CreatorJID)
+			send_confession_favorited_push_notification(Server, ConfessionId)
 	end,
+
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
-
-
-add_favorite(#jid{user = User, server = Server,
-                      resource = Resource} = JID, ConfessionId) ->
-
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),	
-
-	ejabberd_odbc:sql_query(Server,
-                                [<<"INSERT INTO confession_favorites (jid, confession_id) VALUES ('">>,User,<<"','">>,ConfessionId,<<"')">>]),
-
-ok.
-
-
-delete_favorite(#jid{user = User, server = Server,
-                      resource = Resource} = JID, ConfessionId) ->
-
-	JIDString = jlib:jid_to_string(jlib:make_jid(User,Server, <<"">>)),
-
-	ejabberd_odbc:sql_query(Server,
-                                [<<"DELETE FROM confession_favorites WHERE jid='">>,User,<<"' AND confession_id='">>,ConfessionId,<<"'">>]),
-
-ok.
 
 
 build_notification_packet(Body) ->
@@ -226,80 +135,38 @@ build_notification_packet(Body) ->
 
                 ]}.
 
+send_confession_favorited_push_notification(Server, ConfessionId)->
 
-send_confession_favorited_notification(ConfessionId, ToJID)->
-	
-	Server = ToJID#jid.lserver,
+	Confession = custom_odbc_queries:get_confession(Server, ConfessionId),
 
-%	FavoriteAlertJSON = lists:flatten(io_lib:format("{confession_id: ~s}", [ConfessionId])),
+	SecondsSinceLast = custom_odbc_queries:get_seconds_since_last_push_notification(Server, Confession#confession.username),
 
-%        send_packet_all_resources(Server, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
-
-
-	send_confession_favorited_push_notification(ConfessionId, ToJID),
-
-ok.
-
-send_confession_favorited_push_notification(ConfessionId, ToJID)->
-
-	%% If last dispatch was 30 min ago, push notification.
-	{_,_, LastSentTimestampResult} = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"SELECT last_push_timestamp FROM last_push_notifications WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
-
-
-	CurrentTime = element(1, now()) * 10000 + element(2, now()),
-	
-	Action = case LastSentTimestampResult of
-			[] ->
-				{true, send_and_insert};
-			[[LastSentTime]] ->
-				case (CurrentTime - binary_to_integer(LastSentTime)) > 600 of
-					true -> 
-						{true, send_and_update};
-					false ->
-						{false, do_not_send}
-				end
-		end,
-
-	?INFO_MSG("\n\n\nACTIPN: ~p - ~p", [LastSentTimestampResult, Action]),
-
-	{ShouldSend, _} = Action,
-
-	case ShouldSend of
-		false ->
-			[];
-		true ->
-			FavoriteAlertJSON = lists:flatten(io_lib:format("~s", [ConfessionId])),
-			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
-			dispatch_confession_post(ToJID, <<"Someone favorited your thought">>, ConfessionId)
+	ShouldSend = case SecondsSinceLast of
+		none ->
+			custom_odbc_queries:insert_last_push_notification_timestamp(Server, Confession#confession.username),
+ 			true;
+		Seconds when Seconds > 300 ->
+			custom_odbc_queries:update_last_push_notification_timestamp(Server, Confession#confession.username),
+			true;
+		_->
+			%% Do nothing
+			false
 	end,
 
-	case Action of
-		{_, send_and_insert} ->
-			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"INSERT INTO last_push_notifications (username, last_push_timestamp) VALUES ('">>, ToJID#jid.luser ,<<"', ">>, integer_to_list(CurrentTime) ,<<")">>]),
+	case ShouldSend of
+		true ->
+			dispatch_confession_post(Server, Confession#confession.username, <<"Someone favorited your thought">>, ConfessionId);
+		false -> []
+	end,
 
-			?INFO_MSG("\n\nInsert: ~p", [Res]);
-		{_, send_and_update} ->
-			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"UPDATE last_push_notifications set last_push_timestamp=">>, integer_to_list(CurrentTime) ,<<" WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
 
-			?INFO_MSG("\n\nInsert: ~p", [Res]);
-		{false, _} ->
-			[]
-	end,	
+
+
+	
+		%%	FavoriteAlertJSON = lists:flatten(io_lib:format("~s", [ConfessionId])),
+%%			%%send_packet_all_resources(Server, ToUsername, build_notification_packet(FavoriteAlertJSON)),
 
 ok.
 
-get_timestamp()->
-{Mega, Secs, _} = now(),
-        CurrentTimestamp = io_lib:format("~p", [Mega*1000000 + Secs]),
-CurrentTimestamp.
 
-%%%%% XML Handling ============
 
-get_attr(Attr, XData) ->
-    case lists:keysearch(Attr, 1, XData) of
-        {Key, {_, Value}} -> Value;
-        false -> false
-    end.
