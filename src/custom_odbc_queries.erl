@@ -6,8 +6,19 @@
 -include("logger.hrl").
 -include("custom_records.hrl").
 
--export([insert_confession/2, get_confession/2, remove_confession/3]).
--export([insert_confession_favorite/3, remove_confession_favorite/3, is_confession_favorited/3]).
+-export([insert_confession/2,
+	 get_confession/2,
+	 remove_confession/3]).
+
+-export([insert_confession_favorite/3, 
+	remove_confession_favorite/3, 
+	is_confession_favorited/3]).
+
+-export([get_device_info/2]).
+
+-export([get_seconds_since_last_push_notification/2,
+	insert_last_push_notification_timestamp/2,
+	update_last_push_notification_timestamp/2]).
 
 %%%------------------------
 %%% TABLES
@@ -30,6 +41,12 @@
 -define(LAST_PUSH_NOTIFS_TABLE, <<"last_push_notifications">>).
 -define(LAST_PUSH_NOTIFS_TABLE_COLUMN_USERNAME, <<"username">>).
 -define(LAST_PUSH_NOTIFS_TABLE_COLUMN_TIMESTAMP, <<"last_push_timestamp">>).
+
+%% Table: device_tokens
+-define(DEVICE_TOKENS_TABLE, <<"device_tokens">>).
+-define(DEVICE_TOKENS_TABLE_COLUMN_USERNAME, <<"username">>).
+-define(DEVICE_TOKENS_TABLE_COLUMN_TOKEN, <<"token">>).
+-define(DEVICE_TOKENS_TABLE_COLUMN_TYPE, <<"type">>).
 
 %%%------------------------
 %%% Confession Queries
@@ -228,4 +245,104 @@ is_confession_favorited(Server, Username, ConfessionId)->
 %%% Push Notification Queries
 %%%------------------------
 
+-spec get_seconds_since_last_push_notification(binary(), binary()) -> non_neg_integer() | none.
 
+get_seconds_since_last_push_notification(Server, Username) ->
+
+	Res = ejabberd_odbc:sql_query(Server, 
+				[
+					<<"SELECT ">>,
+					<<"TIME_TO_SEC(TIMEDIFF(NOW(), ">>,?LAST_PUSH_NOTIFS_TABLE_COLUMN_TIMESTAMP,<<")) AS time_diff ">>,
+			
+					<<"FROM ">>,
+					?LAST_PUSH_NOTIFS_TABLE, <<" ">>,
+			
+					<<"WHERE ">>,
+					?LAST_PUSH_NOTIFS_TABLE_COLUMN_USERNAME,<<"='">>,Username,<<"'">>
+				]),
+
+	case Res of
+		{selected, [<<"time_diff">>], [[TimeDiff]]} -> binary_to_integer(TimeDiff);
+		{selected, [<<"time_diff">>], []} -> none;
+		_-> error
+	end.
+
+insert_last_push_notification_timestamp(Server, Username) ->
+
+	Res = ejabberd_odbc:sql_query(Server,
+                                [
+                                        <<"INSERT INTO ">>,
+                                        ?LAST_PUSH_NOTIFS_TABLE,<<" ">>,
+                                        <<"(">>,?LAST_PUSH_NOTIFS_TABLE_COLUMN_USERNAME,<<") ">>,
+                                        <<"VALUES ('">>,Username,<<"')">>
+                                ] ),
+
+        case Res of
+                {updated, 1} ->
+                        ok;
+                _->
+                        ?INFO_MSG("Unable to insert username into last_push_notifs table: ~p", Res),
+                        error
+        end.
+
+update_last_push_notification_timestamp(Server, Username) ->
+
+	Res = ejabberd_odbc:sql_query(Server,
+                                [
+                                        <<"UPDATE ">>,
+                                        ?LAST_PUSH_NOTIFS_TABLE,<<" ">>,
+					
+					<<"SET ">>,
+					?LAST_PUSH_NOTIFS_TABLE_COLUMN_TIMESTAMP, <<"=NOW() ">>,
+                                	
+					<<"WHERE ">>,
+					?LAST_PUSH_NOTIFS_TABLE_COLUMN_USERNAME,<<"='">>,Username,<<"'">>
+				] ),
+
+        case Res of
+                {updated, 1} ->
+                        ok;
+                _->
+                        ?INFO_MSG("Unable to update username in last_push_notifs table: ~p", Res),
+                        error
+        end.
+
+%%%------------------------
+%%% Device Token Queries
+%%%------------------------
+
+-type device_token() :: binary().
+-type device_type() :: binary().
+-type device_info() :: {device_token(), device_type()}.
+
+-spec get_device_info(binary(), binary()) -> device_info() | 'undefined' | error.
+
+get_device_info(Server, Username) ->
+
+	Res = ejabberd_odbc:sql_query(Server,
+                                [
+					<<"SELECT ">>,
+					?DEVICE_TOKENS_TABLE_COLUMN_TOKEN, <<", ">>,
+					?DEVICE_TOKENS_TABLE_COLUMN_TYPE, <<" ">>,
+					
+					<<"FROM ">>,
+					?DEVICE_TOKENS_TABLE, <<" ">>,
+		
+					<<"WHERE ">>,
+					?DEVICE_TOKENS_TABLE_COLUMN_USERNAME,<<"='">>,Username,<<"'">>
+                                ]),
+
+        case Res of
+                {selected,
+                        [
+				?DEVICE_TOKENS_TABLE_COLUMN_TOKEN,
+				?DEVICE_TOKENS_TABLE_COLUMN_TYPE
+                        ], Result} ->
+                                [[DeviceToken, DeviceType]] = Result,
+                		{DeviceToken, DeviceType};
+		{selected, _, []} ->
+                        'undefined';
+                _->
+                        ?INFO_MSG("Unable to get device information: ~p", [Res]),
+                        error
+        end.

@@ -19,7 +19,7 @@
 -export([create_confession/3, destroy_confession/3]).
 -export([toggle_favorite/3]).
 
--import(mod_offline_post, [dispatch_confession_post/3]).
+-import(mod_offline_post, [dispatch_confession_post/4]).
 
 -import(mod_http_contacts_manager, [send_packet_all_resources/3, build_packet/2]).
 
@@ -29,7 +29,11 @@
 			remove_confession/3,
 			insert_confession_favorite/3,
 			remove_confession_favorite/3,
-			is_confession_favorited/3]).
+			is_confession_favorited/3,
+			get_seconds_since_last_push_notification/2,
+			insert_last_push_notification_timestamp/2,
+			update_last_push_notification_timestamp/2
+			]).
 
 start(Host, Opts) ->
 
@@ -104,30 +108,14 @@ toggle_favorite(#jid{user = User, server = Server,
 
 	ConfessionId = xml:get_tag_attr_s(<<"id">>, TagEl),
 
-	Confession = custom_odbc_queries:get_confession(Server, ConfessionId),
-
-	?INFO_MSG("\n\nConfession record: ~p", [Confession]),
-
 	case custom_odbc_queries:is_confession_favorited(Server, User, ConfessionId) of
 		true ->
 			custom_odbc_queries:remove_confession_favorite(Server, User, ConfessionId);
 		false ->
-			custom_odbc_queries:insert_confession_favorite(Server, User, ConfessionId)
+			custom_odbc_queries:insert_confession_favorite(Server, User, ConfessionId),
+
+			send_confession_favorited_push_notification(Server, ConfessionId)
 	end,
-
-%%			%% Get username of person who created confession.
-%%			{_,_,[[CreatorUsername]]} = ejabberd_odbc:sql_query(Server,
-  %%                              [<<"SELECT jid FROM ">>,?CONFESSIONS_TABLE,<<" WHERE ">>,?CONFESSIONS_TABLE_COLUMN_CONFESSION_ID,<<"='">>,ConfessionId,<<"'">>]),
-%%
-%%			?INFO_MSG("Sending favorite alert to ~p", [CreatorUsername]),
-%%
-%%			%%CreatorJID = list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)])),
-
-%%			CreatorJID = jlib:string_to_jid(list_to_binary(lists:concat([binary_to_list(CreatorUsername), "@", binary_to_list(Server)]))),
-
- %%       		send_confession_favorited_push_notification(ConfessionId, CreatorJID)
-%%	end,
-
 
 IQ#iq{type = result, sub_el = [{xmlel, "value", [], [{xmlcdata, <<"Confession Favortie Toggled">>}]}]}.
 
@@ -147,54 +135,38 @@ build_notification_packet(Body) ->
 
                 ]}.
 
-send_confession_favorited_push_notification(ConfessionId, ToJID)->
+send_confession_favorited_push_notification(Server, ConfessionId)->
 
-	%% If last dispatch was 30 min ago, push notification.
-	{_,_, LastSentTimestampResult} = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"SELECT last_push_timestamp FROM last_push_notifications WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
+	Confession = custom_odbc_queries:get_confession(Server, ConfessionId),
 
+	SecondsSinceLast = custom_odbc_queries:get_seconds_since_last_push_notification(Server, Confession#confession.username),
 
-	CurrentTime = element(1, now()) * 10000 + element(2, now()),
-	
-	Action = case LastSentTimestampResult of
-			[] ->
-				{true, send_and_insert};
-			[[LastSentTime]] ->
-				case (CurrentTime - binary_to_integer(LastSentTime)) > 600 of
-					true -> 
-						{true, send_and_update};
-					false ->
-						{false, do_not_send}
-				end
-		end,
-
-	?INFO_MSG("\n\n\nACTIPN: ~p - ~p", [LastSentTimestampResult, Action]),
-
-	{ShouldSend, _} = Action,
-
-	case ShouldSend of
-		false ->
-			[];
-		true ->
-			FavoriteAlertJSON = lists:flatten(io_lib:format("~s", [ConfessionId])),
-			send_packet_all_resources(ToJID#jid.lserver, jlib:jid_to_string(ToJID), build_notification_packet(FavoriteAlertJSON)),
-			dispatch_confession_post(ToJID, <<"Someone favorited your thought">>, ConfessionId)
+	ShouldSend = case SecondsSinceLast of
+		none ->
+			custom_odbc_queries:insert_last_push_notification_timestamp(Server, Confession#confession.username),
+ 			true;
+		Seconds when Seconds > 300 ->
+			custom_odbc_queries:update_last_push_notification_timestamp(Server, Confession#confession.username),
+			true;
+		_->
+			%% Do nothing
+			false
 	end,
 
-	case Action of
-		{_, send_and_insert} ->
-			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"INSERT INTO last_push_notifications (username, last_push_timestamp) VALUES ('">>, ToJID#jid.luser ,<<"', ">>, integer_to_list(CurrentTime) ,<<")">>]),
+	case ShouldSend of
+		true ->
+			dispatch_confession_post(Server, Confession#confession.username, <<"Someone favorited your thought">>, ConfessionId);
+		false -> []
+	end,
 
-			?INFO_MSG("\n\nInsert: ~p", [Res]);
-		{_, send_and_update} ->
-			Res = ejabberd_odbc:sql_query(ToJID#jid.lserver,
-                            [<<"UPDATE last_push_notifications set last_push_timestamp=">>, integer_to_list(CurrentTime) ,<<" WHERE username='">>, ToJID#jid.luser ,<<"'">>]),
 
-			?INFO_MSG("\n\nInsert: ~p", [Res]);
-		{false, _} ->
-			[]
-	end,	
+
+
+	
+		%%	FavoriteAlertJSON = lists:flatten(io_lib:format("~s", [ConfessionId])),
+%%			%%send_packet_all_resources(Server, ToUsername, build_notification_packet(FavoriteAlertJSON)),
 
 ok.
+
+
 
