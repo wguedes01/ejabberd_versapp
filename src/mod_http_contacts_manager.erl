@@ -45,20 +45,19 @@ process([<<"store">>], Request) ->
 	Username = is_valid_http_request(Request),
 
 	?INFO_MSG("\n\nUsername: ~p", [Username]),
+
+	case Username of
+		false -> [];
+		_->
+
 	
-	ContactList = string:tokens(binary_to_list(Data), ","),
+		ContactList = string:tokens(binary_to_list(Data), ","),
 
-	%% Formats user information in this format: ('current_username','contact_identifier'). Eg: ('w','34938439849385')
-	FormattedList = lists:map(fun(El)-> lists:concat(["('",Username,"','",El,"')"]) end, ContactList),
-
-	%% Add all contacts to database.
-	%% ejabberd_odbc:sql_query(?SERVER_IP,
-                 %%                       [<<"INSERT IGNORE INTO contacts (username, identifier) VALUES ">>,string:join(FormattedList, ", ")]),
+		%% Formats user information in this format: ('current_username','contact_identifier'). Eg: ('w','34938439849385')
+		FormattedList = lists:map(fun(El)-> lists:concat(["('",Username,"','",El,"')"]) end, ContactList),
 	
-	%% Formats SQL query inputs the way it will be used in the SELECT statement below.
-	SQLFormattedContactList = lists:map(fun(El)-> string:join(["'",El,"'"], "") end, ContactList),
-
-	%% TODO: Select only contacts that have the app AND are not already friends with user.
+		%% Formats SQL query inputs the way it will be used in the SELECT statement below.
+		SQLFormattedContactList = lists:map(fun(El)-> string:join(["'",El,"'"], "") end, ContactList),
 
 	?INFO_MSG("\n\nSQLFOrmattedContactList = ~p", [SQLFormattedContactList]),
 
@@ -68,64 +67,62 @@ process([<<"store">>], Request) ->
 
 	?INFO_MSG("\n\n\n\n\nREG: ~p. \n\nQueryResOne: ~p. \n\nQUeryResTwo: ~p", [Reg, QueryResOne, QueryResTwo]),
 
-	%%List containing information to add friends to user roster
-	FriendList1 = lists:map(fun([El])-> string:join(["('",Username,"', '",string:concat(binary_to_list(El), binary_to_list(?JID_EXT)),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
+		%%List containing information to add friends to user roster
+		FriendList1 = lists:map(fun([El])-> string:join(["('",Username,"', '",string:concat(binary_to_list(El), binary_to_list(?JID_EXT)),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
 
-	%%List containing information to add user to friend's roster
-	FriendList2 = lists:map(fun([El])-> string:join(["('",binary_to_list(El),"', '",Username, binary_to_list(?JID_EXT),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
+		FriendList2 = lists:map(fun([El])-> string:join(["('",binary_to_list(El),"', '",Username, binary_to_list(?JID_EXT),"', 'temp_name', 'B', 'N', 'N', 'item')"], "") end, Reg),
 
-	%%Combined list.
-	TempFriendsSQL = lists:append(FriendList1, FriendList2),
+		%%Combined list.
+		TempFriendsSQL = lists:append(FriendList1, FriendList2),
 
-	%% Remove any duplicates from list.
-	Set = sets:from_list(TempFriendsSQL),
-        FriendsSQL = sets:to_list(Set),	
-
+		%% Remove any duplicates from list.
+		Set = sets:from_list(TempFriendsSQL),
+        	FriendsSQL = sets:to_list(Set),	
 
 
-	%%TODO: Check if that user is blocked by user he's trying to add. If so, don't add. Also, if user has already tried to be friends, don't add them to roster as a friend.
 
-	?INFO_MSG("\n\nFriendsSQL: ~p", [FriendsSQL]),
+		%%TODO: Check if that user is blocked by user he's trying to add. If so, don't add. Also, if user has already tried to be friends, don't add them to roster as a friend.
 
-	case length(FriendsSQL) > 0 of
-		true ->
-	
-			?INFO_MSG("\n\nSQL: ~p", [ejabberd_odbc:sql_query(?SERVER_IP,
-                                        [<<"INSERT IGNORE INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ">>,string:join(FriendsSQL, ",") ])]);
+		?INFO_MSG("\n\nFriendsSQL: ~p", [FriendsSQL]),
 
-		false ->
-
-			[]
-	end,
-
-	lists:foreach(fun(El)-> 
+		case length(FriendsSQL) > 0 of
+			true ->
 		
-		%% SENDS BROADCAST TO USERS NOTIFYING THEM SOMEONE ADDED THEM TO THEIR ROSTER
-		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(El,binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"You have a new friend in Versapp!">>]))
+				?INFO_MSG("\n\nSQL: ~p", [ejabberd_odbc:sql_query(?SERVER_IP,
+                        	                [<<"INSERT IGNORE INTO rosterusers (username, jid, nick, subscription, ask, server, type) VALUES ">>,string:join(FriendsSQL, ",") ])]);
 
-	end, Reg),
+			false ->
 
+				[]
+		end,
 
-		send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(Username,binary_to_list(?JID_EXT))), build_completed_packet(message_chat, [<<"DONE">>])),
-
-%%		".";
+		lists:foreach(fun(El)-> 
 		
-		#xmlel{name = <<"html">>,
-           attrs =
-               [{<<"xmlns">>, <<"http://www.w3.org/1999/xhtml">>},
-                {<<"xml:lang">>, <<"en">>}, {<<"lang">>, <<"en">>}],
-           children =
-               [#xmlel{name = <<"head">>, attrs = [],
-                       children =
-                           [#xmlel{name = <<"meta">>,
-                                   attrs =
-                                       [{<<"http-equiv">>, <<"Content-Type">>},
-                                        {<<"content">>,
-                                         <<"application/xml">>}],
-                                   children = []}
-                            ]},
-                #xmlel{name = <<"body">>, attrs = [], children = []}]};
+			%% SENDS BROADCAST TO USERS NOTIFYING THEM SOMEONE ADDED THEM TO THEIR ROSTER
+			send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(El,binary_to_list(?JID_EXT))), build_packet(message_chat, [<<"You have a new friend in Versapp!">>]))
 
+		end, Reg),
+
+
+			send_packet_all_resources(list_to_binary(string:concat(Username, binary_to_list(?JID_EXT))), list_to_binary(string:concat(Username,binary_to_list(?JID_EXT))), build_completed_packet(message_chat, [<<"DONE">>])),
+
+		
+			#xmlel{name = <<"html">>,
+           	attrs =
+               		[{<<"xmlns">>, <<"http://www.w3.org/1999/xhtml">>},
+               	 	{<<"xml:lang">>, <<"en">>}, {<<"lang">>, <<"en">>}],
+           	children =
+              	 	[#xmlel{name = <<"head">>, attrs = [],
+                      	 children =
+                         	  [#xmlel{name = <<"meta">>,
+                               		   attrs =
+                                      		 [{<<"http-equiv">>, <<"Content-Type">>},
+                                       		 {<<"content">>,
+                                       		  <<"application/xml">>}],
+                                   	children = []}
+                            	]},
+                	#xmlel{name = <<"body">>, attrs = [], children = []}]}
+	end;
 process([<<"produce_error">>], Request) ->
 	"ERROR";
 process(LocalPath, _Request) ->
